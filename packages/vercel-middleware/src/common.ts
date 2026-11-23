@@ -8,6 +8,7 @@ export const REDIRECTIONIO_START_TIME_HEADER = "x-redirectionio-start-time";
 export const REDIRECTIONIO_MATCH_TIME_TIME_HEADER = "x-redirectionio-action-match-time";
 export const REDIRECTIONIO_ACTION_HEADER = "x-redirectionio-action";
 export const REDIRECTIONIO_SIGNATURE_HEADER = "x-redirectionio-signature";
+export const REDIRECTIONIO_MIDDLEWARE_HEADER = "x-redirectionio-middleware";
 
 export type ForwardedMiddlewareData = {
     action: string;
@@ -25,14 +26,39 @@ const FORWARDED_DATA_MAX_AGE_MS = 60_000;
 
 const textEncoder = new TextEncoder();
 
-function importSigningKey() {
-    return crypto.subtle.importKey(
+let signingKey: Promise<CryptoKey> | undefined;
+let middlewareLoopMarker: Promise<string> | undefined;
+
+function getSigningKey() {
+    signingKey ??= crypto.subtle.importKey(
         "raw",
         textEncoder.encode(REDIRECTIONIO_TOKEN),
         { name: "HMAC", hash: "SHA-256" },
         false,
         ["sign", "verify"],
     );
+
+    return signingKey;
+}
+
+async function hmacHex(message: Uint8Array<ArrayBuffer>) {
+    const signature = await crypto.subtle.sign("HMAC", await getSigningKey(), message);
+
+    return Array.from(new Uint8Array(signature), (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+export function getMiddlewareLoopMarker(): Promise<string> {
+    middlewareLoopMarker ??= hmacHex(textEncoder.encode(REDIRECTIONIO_MIDDLEWARE_HEADER));
+
+    return middlewareLoopMarker;
+}
+
+export async function isMiddlewareLoopRequest(markerValue: string | string[] | null | undefined) {
+    if (typeof markerValue !== "string" || !REDIRECTIONIO_TOKEN) {
+        return false;
+    }
+
+    return markerValue === (await getMiddlewareLoopMarker());
 }
 
 function serializeForwardedData(
@@ -44,10 +70,8 @@ function serializeForwardedData(
     );
 }
 
-export async function signForwardedData(data: ForwardedMiddlewareData, request: ForwardedRequest) {
-    const signature = await crypto.subtle.sign("HMAC", await importSigningKey(), serializeForwardedData(data, request));
-
-    return Array.from(new Uint8Array(signature), (byte) => byte.toString(16).padStart(2, "0")).join("");
+export function signForwardedData(data: ForwardedMiddlewareData, request: ForwardedRequest) {
+    return hmacHex(serializeForwardedData(data, request));
 }
 
 export async function verifyForwardedData(data: ForwardedMiddlewareData, request: ForwardedRequest, signature: string) {
@@ -61,12 +85,7 @@ export async function verifyForwardedData(data: ForwardedMiddlewareData, request
 
     const signatureBytes = new Uint8Array((signature.match(/../g) ?? []).map((byte) => parseInt(byte, 16)));
 
-    return crypto.subtle.verify(
-        "HMAC",
-        await importSigningKey(),
-        signatureBytes,
-        serializeForwardedData(data, request),
-    );
+    return crypto.subtle.verify("HMAC", await getSigningKey(), signatureBytes, serializeForwardedData(data, request));
 }
 
 export async function fetchRedirectionIOAction(redirectionIORequest: redirectionio.Request) {

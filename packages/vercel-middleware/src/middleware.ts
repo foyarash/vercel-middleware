@@ -5,8 +5,11 @@ import {
     createRedirectionIORequest,
     ForwardedMiddlewareData,
     ForwardedRequest,
+    getMiddlewareLoopMarker,
+    isMiddlewareLoopRequest,
     REDIRECTIONIO_ACTION_HEADER,
     REDIRECTIONIO_MATCH_TIME_TIME_HEADER,
+    REDIRECTIONIO_MIDDLEWARE_HEADER,
     REDIRECTIONIO_PROXY_RESPONSE_TIME_HEADER,
     REDIRECTIONIO_SIGNATURE_HEADER,
     REDIRECTIONIO_START_TIME_HEADER,
@@ -55,8 +58,7 @@ export const createRedirectionIoMiddleware = <R extends Request = Request, C ext
 
         // Avoid infinite loop
         if (
-            request.headers.get("x-redirectionio-middleware") === "true" ||
-            request.headers.get("User-Agent") === "Vercel Edge Functions" ||
+            (await isMiddlewareLoopRequest(request.headers.get(REDIRECTIONIO_MIDDLEWARE_HEADER))) ||
             request.headers.get("Accept") === "text/x-component" ||
             request.headers.get("Next-Action")?.length
         ) {
@@ -159,8 +161,9 @@ async function handler(
     });
     const action = await fetchRedirectionIOAction(redirectionIORequest);
     const actionMatchTime = Date.now();
+    const middlewareLoopMarker = await getMiddlewareLoopMarker();
     const [response] = await proxy(request, action, includedRequestHeadersInResponse, (request) => {
-        request.headers.set("x-redirectionio-middleware", "true");
+        request.headers.set(REDIRECTIONIO_MIDDLEWARE_HEADER, middlewareLoopMarker);
 
         // skip fetch if we are in light mode
         return fetchResponse(request, action.need_proxification());
