@@ -140,6 +140,14 @@ from `@redirection.io/vercel-middleware/next` which is compatible with `NextRequ
 
 ```
 
+### Client-side navigations and prefetches
+
+Redirections and blocking rules also apply to client-side navigations (`<Link>`, `router.push`) and to `<Link>` prefetches: the agent is called for these React Server Components requests, so a prefetched link that is redirected lands on the redirection target when clicked. Rules that need the backend response (body or header rewriting) are never applied to these requests, the response is left to Next.js. Server actions (`Next-Action` requests) are never handled by the middleware.
+
+Prefetch requests are not logged in redirection.io. The internal `_rsc` query parameter is removed from the URL sent to the agent and from the logs.
+
+By default, Next.js removes the RSC headers (`RSC`, `Next-Router-Prefetch`, `Next-Router-State-Tree`...) and the `_rsc` parameter before running the middleware/proxy, so these requests cannot be told apart from page requests there: rules that need the backend response may then return HTML to a client navigation, which makes Next.js fall back to a full page load. Set `skipProxyUrlNormalize: true` (`skipMiddlewareUrlNormalize` before Next.js 16) in your Next config to let the middleware detect them.
+
 ### Webpack
 
 If you are using Webpack in your Next.js application, you will need to add the following in your Next config :

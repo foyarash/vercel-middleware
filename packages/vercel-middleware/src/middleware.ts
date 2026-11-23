@@ -14,6 +14,7 @@ import {
     REDIRECTIONIO_SIGNATURE_HEADER,
     REDIRECTIONIO_START_TIME_HEADER,
     signForwardedData,
+    stripNextRscSearchParam,
 } from "./common";
 import { getEnv } from "./env";
 import { Middleware } from "./types";
@@ -60,8 +61,7 @@ export const createRedirectionIoMiddleware = <R extends Request = Request, C ext
         // Avoid infinite loop
         if (
             (await isMiddlewareLoopRequest(request.headers.get(REDIRECTIONIO_MIDDLEWARE_HEADER))) ||
-            request.headers.get("Accept") === "text/x-component" ||
-            request.headers.get("Next-Action")?.length
+            getNextRequestKind(request) === "server-action"
         ) {
             return next();
         }
@@ -104,11 +104,7 @@ export const createRedirectionIoMiddleware = <R extends Request = Request, C ext
                     return response ?? next();
                 }
 
-                // Disable for server-actions and components.
-                if (
-                    request.headers.get("Next-Action")?.length ||
-                    request.headers.get("Accept") === "text/x-component"
-                ) {
+                if (getNextRequestKind(request) !== "document") {
                     return response ?? next();
                 }
 
@@ -133,6 +129,29 @@ export const createRedirectionIoMiddleware = <R extends Request = Request, C ext
     };
 };
 
+type NextRequestKind = "server-action" | "rsc" | "document";
+
+function getNextRequestKind(request: Request): NextRequestKind {
+    const { headers } = request;
+
+    if (headers.get("next-action")) {
+        return "server-action";
+    }
+
+    if (
+        headers.get("rsc") === "1" ||
+        headers.has("next-router-prefetch") ||
+        headers.has("next-router-segment-prefetch") ||
+        headers.has("next-router-state-tree") ||
+        headers.get("accept")?.includes("text/x-component") ||
+        new URL(request.url).searchParams.has("_rsc")
+    ) {
+        return "rsc";
+    }
+
+    return "document";
+}
+
 const defaultMiddleware = createRedirectionIoMiddleware({});
 
 export default defaultMiddleware;
@@ -154,8 +173,9 @@ async function handler(
     await redirectionio.init();
 
     const ip = ipAddress(request);
+    const url = stripNextRscSearchParam(new URL(request.url));
     const redirectionIORequest = createRedirectionIORequest({
-        url: new URL(request.url),
+        url,
         headers: Object.fromEntries(Object.entries(request.headers)) as Record<string, string>,
         method: request.method,
         ip,
@@ -178,8 +198,6 @@ async function handler(
         response.headers.set(REDIRECTIONIO_MATCH_TIME_TIME_HEADER, actionMatchTime.toString());
         response.headers.set(REDIRECTIONIO_ACTION_HEADER, action.serialize());
     }
-
-    const url = new URL(request.url);
 
     await forwardDataToBackend(
         response,
@@ -429,8 +447,7 @@ async function proxy(
         newHeaderMap.remove_header("content-encoding");
         const bodyFilter = action.create_body_filter(backendStatusCode, newHeaderMap);
 
-        // Skip body filtering
-        if (bodyFilter.is_null()) {
+        if (bodyFilter.is_null() || getNextRequestKind(request) !== "document") {
             return [response, response.status];
         }
 

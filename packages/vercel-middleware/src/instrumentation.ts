@@ -13,6 +13,7 @@ import {
     REDIRECTIONIO_PROXY_RESPONSE_TIME_HEADER,
     REDIRECTIONIO_SIGNATURE_HEADER,
     REDIRECTIONIO_START_TIME_HEADER,
+    stripNextRscSearchParam,
     verifyForwardedData,
 } from "./common";
 const { REDIRECTIONIO_TOKEN, REDIRECTIONIO_INSTANCE_NAME, REDIRECTIONIO_VERSION } = getEnv();
@@ -47,13 +48,18 @@ export const registerRedirectionIoInstrumentation = async () => {
                 return; // Skip logging
             }
 
-            if (await isMiddlewareLoopRequest(request.headers[REDIRECTIONIO_MIDDLEWARE_HEADER])) {
+            if (
+                (await isMiddlewareLoopRequest(request.headers[REDIRECTIONIO_MIDDLEWARE_HEADER])) ||
+                isNextPrefetchRequest(request)
+            ) {
                 return;
             }
 
             const statusCode = response.statusCode;
 
-            const url = new URL(requestUrl, `${request.headers["x-forwarded-proto"]}://${request.headers.host}`);
+            const url = stripNextRscSearchParam(
+                new URL(requestUrl, `${request.headers["x-forwarded-proto"]}://${request.headers.host}`),
+            );
             const forwardedData = await readForwardedData(request, {
                 method: request.method ?? "",
                 pathAndQuery: url.pathname + url.search,
@@ -94,6 +100,10 @@ export const registerRedirectionIoInstrumentation = async () => {
         });
     }
 };
+
+function isNextPrefetchRequest(request: IncomingMessage) {
+    return Boolean(request.headers["next-router-prefetch"] || request.headers["next-router-segment-prefetch"]);
+}
 
 async function readForwardedData(
     request: IncomingMessage,
