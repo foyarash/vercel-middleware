@@ -16,6 +16,7 @@ import {
     REDIRECTIONIO_SHOULD_LOG_HEADER,
     REDIRECTIONIO_SIGNATURE_HEADER,
     REDIRECTIONIO_START_TIME_HEADER,
+    stripNextRscSearchParam,
     verifyForwardedData,
 } from "./common";
 const { REDIRECTIONIO_TOKEN } = getEnv();
@@ -52,7 +53,10 @@ export const registerRedirectionIoInstrumentation = async () => {
                 return; // Skip logging
             }
 
-            if (await isMiddlewareLoopRequest(request.headers[REDIRECTIONIO_MIDDLEWARE_HEADER])) {
+            if (
+                (await isMiddlewareLoopRequest(request.headers[REDIRECTIONIO_MIDDLEWARE_HEADER])) ||
+                isNextPrefetchRequest(request)
+            ) {
                 return;
             }
 
@@ -68,7 +72,9 @@ export const registerRedirectionIoInstrumentation = async () => {
 
             const statusCode = response.statusCode;
 
-            const url = new URL(requestUrl, `${request.headers["x-forwarded-proto"]}://${request.headers.host}`);
+            const url = stripNextRscSearchParam(
+                new URL(requestUrl, `${request.headers["x-forwarded-proto"]}://${request.headers.host}`),
+            );
 
             // Route params added by Vercel to the query of dynamic routes (e.g. ?nxtPslug=value)
             Array.from(url.searchParams.keys())
@@ -132,6 +138,10 @@ export const registerRedirectionIoInstrumentation = async () => {
         });
     }
 };
+
+function isNextPrefetchRequest(request: IncomingMessage) {
+    return Boolean(request.headers["next-router-prefetch"] || request.headers["next-router-segment-prefetch"]);
+}
 
 async function readForwardedData(
     request: IncomingMessage,

@@ -232,3 +232,12 @@ export function createRedirectionIORequest({ url, method, headers, ip }: CreateR
 
     return redirectionioRequest;
 }
+
+// Next strips `_rsc` (re-serializing the query) before the proxy runs, so both sides must normalize the same way.
+export function stripNextRscSearchParam(url: URL): URL {
+    const strippedUrl = new URL(url);
+
+    strippedUrl.searchParams.delete("_rsc");
+
+    return strippedUrl;
+}
