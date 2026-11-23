@@ -18,12 +18,15 @@ import {
     REDIRECTIONIO_SHOULD_LOG_HEADER,
     REDIRECTIONIO_SIGNATURE_HEADER,
     REDIRECTIONIO_START_TIME_HEADER,
+    STATIC_ASSET_EXTENSIONS,
     stripNextRscSearchParam,
     verifyForwardedData,
 } from "./common";
 const { REDIRECTIONIO_TOKEN } = getEnv();
 
 type ResponseFinishMessage = { request: IncomingMessage; response: ServerResponse };
+
+const STATIC_ASSET_REGEX = new RegExp(`\\.(?:${STATIC_ASSET_EXTENSIONS})(?:\\?|$)`, "i");
 
 const LOG_RESPONSE_KEY = Symbol.for("@redirection.io/vercel-middleware/instrumentation");
 
@@ -59,7 +62,7 @@ export const registerRedirectionIoInstrumentation = async ({ matcherRegex }: Reg
                 requestUrl.startsWith("/_next/") ||
                 requestUrl.startsWith("/_vercel/") ||
                 requestUrl.includes("/__nextjs") ||
-                /\.(js|css|png|jpg|jpeg|gif|svg|ico|woff|woff2|ttf|map|json)(\?|$)/i.test(requestUrl) ||
+                STATIC_ASSET_REGEX.test(requestUrl) ||
                 !isPathMatched(new URL(requestUrl, "http://localhost").pathname, matcherRegex)
             ) {
                 return; // Skip logging

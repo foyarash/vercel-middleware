@@ -157,9 +157,8 @@ const myExistingMiddleware = (request: Request) => {
 const middleware = createRedirectionIoMiddleware({
     previousMiddleware: myExistingMiddleware, // In this case your middleware is executed before redirection.io middleware
     nextMiddleware: myExistingMiddleware, // In this case your middleware is executed after redirection.io middleware
-    // Optional: matcher to specify which routes should be ignored by redirection.io middleware
-    // Default: "^/((?!api/|_next/|_static/|_vercel|[\\w-]+\\.\\w+).*)$"
-    matcherRegex: "^/((?!api/|_next/|_static/|_vercel|[\\w-]+\\.\\w+).*)$",
+    // Optional: regex of the paths handled by redirection.io middleware (default: see below)
+    matcherRegex: "^/(?!api/|_next/|_static/|_vercel)",
     // Optional: If light, redirection.io middleware will only redirect and not override the response
     // Default: "full"
     mode: "light",
@@ -174,9 +173,20 @@ export default middleware;
 By default, our middleware ignores certain routes even if there's an exported configuration. The ignored routes are:
 
 -   `/api/*` routes
--   `/next/*` (Next.js internals)
--   `/static/*` (inside `/public`)
--   all root files inside /public (e.g. /favicon.ico)
+-   `/_next/*` (Next.js internals) and `/_vercel*` (Vercel internals)
+-   `/_static/*`
+-   static assets at any level, by extension: scripts and styles (`.js`, `.mjs`, `.css`, `.map`, `.json`), images
+    (`.png`, `.jpg`, `.jpeg`, `.gif`, `.svg`, `.ico`, `.webp`, `.avif`, `.bmp`), fonts (`.woff`, `.woff2`, `.ttf`,
+    `.otf`, `.eot`), `.webmanifest` and media (`.mp4`, `.webm`, `.mp3`)
+
+Other URLs with an extension are handled, so that legacy URLs can be redirected (`/old-page.html`, `/blog/post.php`,
+`/page.aspx`, `/document.pdf`, `/robots.txt`, `/sitemap.xml`…). The default regex is:
+
+```text
+^/(?!api/|_next/|_static/|_vercel)(?!.*\.(?:css|js|mjs|map|json|png|jpe?g|gif|svg|ico|webp|avif|bmp|woff2?|ttf|otf|eot|webmanifest|mp4|webm|mp3)$).*$
+```
+
+The `matcher` exported in the `config` of your `middleware.ts`/`proxy.ts` must also let these URLs through.
 
 If you want the middleware to handle all routes without any exclusions, you can set the `matcherRegex` option to `null`:
 
