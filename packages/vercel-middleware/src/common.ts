@@ -26,6 +26,7 @@ export const REDIRECTIONIO_ACTION_HEADER = "x-redirectionio-action";
 export const REDIRECTIONIO_SIGNATURE_HEADER = "x-redirectionio-signature";
 export const REDIRECTIONIO_MIDDLEWARE_HEADER = "x-redirectionio-middleware";
 export const REDIRECTIONIO_SHOULD_LOG_HEADER = "x-redirectionio-should-log";
+export const REDIRECTIONIO_REQUEST_URL_HEADER = "x-redirectionio-request-url";
 
 const DEFAULT_MATCHER_REGEX = "^/((?!api/|_next/|_static/|_vercel|[\\w-]+\\.\\w+).*)$";
 

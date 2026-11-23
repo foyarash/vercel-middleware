@@ -64,15 +64,21 @@ function hasRewrites(rewrites: unknown) {
 }
 
 function readNextRoutes(): NextRoutes | null {
-    const fs = process.getBuiltinModule?.("fs");
+    if (process.env.NEXT_RUNTIME !== "nodejs") {
+        return null;
+    }
 
-    if (!fs || process.env.NEXT_RUNTIME !== "nodejs") {
+    // A static `process.cwd` or `process.getBuiltinModule` fails the Edge build of Turbopack, even if never run there
+    const nodeProcess = globalThis.process;
+    const fs = nodeProcess.getBuiltinModule?.("fs");
+
+    if (!fs) {
         return null;
     }
 
     const readJson = (path: string): JsonObject | null => {
         try {
-            const json: unknown = JSON.parse(fs.readFileSync(process.cwd() + "/.next/" + path, "utf8"));
+            const json: unknown = JSON.parse(fs.readFileSync(nodeProcess.cwd() + "/.next/" + path, "utf8"));
 
             return isJsonObject(json) ? json : null;
         } catch {

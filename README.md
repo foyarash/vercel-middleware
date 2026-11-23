@@ -53,9 +53,19 @@ instrumentation ignores any `x-redirectionio-*` request header without a valid s
 client) and fetches the action itself instead. Both runtimes therefore need the same `REDIRECTIONIO_TOKEN` and access to
 the Web Crypto API (`crypto.subtle`, available on Node.js 20+).
 
+### Redirections
+
+With Next.js, the `Location` header of a redirection to the same host is relative (for example
+`Location: /new-page`): Next.js rewrites any same-origin `Location` returned by a middleware/proxy relative to the
+request, locally and on Vercel. This is allowed by [RFC 9110](https://www.rfc-editor.org/rfc/rfc9110#field.location)
+and followed by browsers and HTTP clients. The logs keep the absolute target URL.
+
 ### Logging
 
-Each request handled by redirection.io is logged exactly once, in the background with `waitUntil`:
+The instrumentation is required to log requests. Each request handled by redirection.io is logged exactly once, in
+the background with `waitUntil`.
+
+On Vercel (`VERCEL=1`):
 
 -   when the middleware produces the final response itself (redirection, custom status such as a `410`, or a response
     proxified to apply headers or body filters), the middleware sends the log;
@@ -64,9 +74,13 @@ Each request handled by redirection.io is logged exactly once, in the background
     status of that page: these pages are served from the Vercel CDN cache and never reach the instrumentation;
 -   when the middleware lets the request through to a dynamic route (server-rendered page, route handler), the
     instrumentation sends the log once the function answered, with its real status code (for example a `404` returned
-    by `notFound()`);
--   requests excluded by the `matcherRegex` (for example `/api/*` routes with the default one) are neither handled nor
-    logged.
+    by `notFound()`).
+
+Elsewhere (`next start`, self-hosting), every response goes through the Next.js server, so the instrumentation sends
+all the logs, with the real status code and the socket address as client IP, and the middleware never logs.
+
+In both cases, requests excluded by the `matcherRegex` (for example `/api/*` routes with the default one) are neither
+handled nor logged.
 
 The instrumentation applies the same default `matcherRegex` as the middleware. If you change it in the middleware, pass
 the same value to the instrumentation:
@@ -75,13 +89,22 @@ the same value to the instrumentation:
 registerRedirectionIoInstrumentation({ matcherRegex: null }); // log every route, API routes included
 ```
 
-To tell static pages from dynamic routes, a Node.js middleware (Next.js 16 `proxy.ts`, or `runtime: "nodejs"`) reads
-the Next.js build manifests (`.next/prerender-manifest.json`, `.next/app-path-routes-manifest.json`,
-`.next/server/pages-manifest.json`, `.next/routes-manifest.json`) once, from the working directory. When they cannot
-be read (Edge runtime, custom `distDir`, i18n routing, `beforeFiles` rewrites), the requests let through are logged by
-the instrumentation only, so pages served from the CDN cache are not logged. With other rewrites in `next.config`,
-only prerendered pages are logged by the middleware. ISR pages with a dynamic segment that are not prerendered yet are
-logged with a `200` status.
+On Vercel, telling static pages from dynamic routes is best effort: Next.js has no public API giving this information
+to a middleware at runtime, so a Node.js middleware reads the Next.js build manifests (`.next/prerender-manifest.json`,
+`.next/app-path-routes-manifest.json`, `.next/server/pages-manifest.json`, `.next/routes-manifest.json`) once, from
+the working directory. This works with the Next.js 16 `proxy.ts`, but not with a Next.js 15 `runtime: "nodejs"`
+middleware deployed on Vercel, where these files are not read. When they cannot be read (Edge runtime, Next.js 15, custom
+`distDir`, i18n routing, `beforeFiles` rewrites), the requests let through are logged by the instrumentation only, so
+pages served from the CDN cache (static pages, ISR pages, the static 404 page) are not logged. With other rewrites in
+`next.config`, only prerendered pages are logged by the middleware. ISR pages with a dynamic segment that are not
+prerendered yet are logged with a `200` status.
+
+An Edge middleware (Next.js 14 and 15 default) bundles the redirection.io WebAssembly module (about 1.25 MB gzipped),
+above the 1 MB limit of Edge functions on the Vercel Hobby plan: use a Node.js middleware, or the Pro plan (2 MB).
+
+The client IP sent with the logs (and to the agent) only comes from a trusted source: on Vercel, the `x-real-ip` header
+set by the platform, which overrides the one sent by the client; elsewhere, the socket address seen by the
+instrumentation (`x-real-ip` and `x-forwarded-for` can be forged by the client when no proxy overrides them).
 
 The instrumentation ignores the Vercel internal requests (`/_vercel/*`, ISR renders requested by the Vercel cache) and
 the invocation of a Node.js middleware, which runs in its own function on Vercel. With `logged: false`, neither the
@@ -174,7 +197,8 @@ When chaining middlewares, redirection.io rules are always matched against the p
 `previousMiddleware` rewrites it. The final response keeps what the chained middlewares set: the rewrite
 (`NextResponse.rewrite`), the overridden request headers (`NextResponse.next({ request: { headers } })`), the cookies
 (`response.cookies.set`) and any other response header. A `previousMiddleware` returning a status other than `200`
-(e.g. a redirection) still short-circuits redirection.io.
+(e.g. a redirection) still short-circuits redirection.io. A rewritten request is logged with its public URL, even
+when the query of the rewrite is added to the URL seen by the page (as on Vercel).
 
 ## Next.js
 

@@ -14,15 +14,18 @@ import {
     REDIRECTIONIO_MATCH_TIME_TIME_HEADER,
     REDIRECTIONIO_MIDDLEWARE_HEADER,
     REDIRECTIONIO_PROXY_RESPONSE_TIME_HEADER,
+    REDIRECTIONIO_REQUEST_URL_HEADER,
     REDIRECTIONIO_SHOULD_LOG_HEADER,
     REDIRECTIONIO_SIGNATURE_HEADER,
     REDIRECTIONIO_START_TIME_HEADER,
     stripNextRscSearchParam,
     verifyForwardedData,
 } from "./common";
-const { REDIRECTIONIO_TOKEN } = getEnv();
+const { IS_VERCEL, REDIRECTIONIO_TOKEN } = getEnv();
 
 type ResponseFinishMessage = { request: IncomingMessage; response: ServerResponse };
+
+type RequestStartMessage = { request: IncomingMessage };
 
 type RegisterInstrumentationConfig = {
     matcherRegex?: string | null;
@@ -40,6 +43,12 @@ export const registerRedirectionIoInstrumentation = async ({ matcherRegex }: Reg
 
         const diagnostics = require("diagnostics_channel");
         const channel = diagnostics.channel("http.server.response.finish");
+        const socketAddresses = new WeakMap<IncomingMessage, string | undefined>();
+
+        // The socket address is no longer readable once the connection is closed
+        diagnostics.channel("http.server.request.start").subscribe(({ request }: RequestStartMessage) => {
+            socketAddresses.set(request, request.socket.remoteAddress);
+        });
 
         const logResponse = async ({ request, response }: ResponseFinishMessage) => {
             const nextInternalMeta = Symbol.for("NextInternalRequestMeta");
@@ -66,8 +75,13 @@ export const registerRedirectionIoInstrumentation = async ({ matcherRegex }: Reg
                 return;
             }
 
-            // On Vercel, a Node.js middleware runs in its own invocation, which must not be logged as the request
-            if (response.getHeaderNames().some((name) => name.startsWith("x-middleware-"))) {
+            // On Vercel, a Node.js middleware runs in its own invocation, which must not be logged as the request.
+            // `next start` only exposes `x-middleware-rewrite` on the response of the rewritten page.
+            if (
+                response
+                    .getHeaderNames()
+                    .some((name) => name.startsWith("x-middleware-") && name !== "x-middleware-rewrite")
+            ) {
                 return;
             }
 
@@ -86,10 +100,8 @@ export const registerRedirectionIoInstrumentation = async ({ matcherRegex }: Reg
             Array.from(url.searchParams.keys())
                 .filter((name) => name.startsWith("nxtP") || name.startsWith("nxtI"))
                 .forEach((name) => url.searchParams.delete(name));
-            const forwardedData = await readForwardedData(request, {
-                method: request.method ?? "",
-                pathAndQuery: url.pathname + url.search,
-            });
+            const forwarded = await readForwardedData(request, url);
+            const forwardedData = forwarded?.data;
 
             if (forwardedData && !forwardedData.shouldLog) {
                 return;
@@ -101,10 +113,11 @@ export const registerRedirectionIoInstrumentation = async ({ matcherRegex }: Reg
             const startTimestamp = forwardedData?.startTimestamp ?? now;
             const actionStr = forwardedData?.action ?? "";
 
-            const ip = (request.headers["x-real-ip"] as string) || request.socket.remoteAddress;
+            const ip = getClientIp(request, socketAddresses.get(request));
 
+            const logUrl = forwarded?.publicUrl ?? url;
             const redirectionIORequest = createRedirectionIORequest({
-                url,
+                url: logUrl,
                 headers: request.headers,
                 method: request.method!,
                 ip,
@@ -121,7 +134,9 @@ export const registerRedirectionIoInstrumentation = async ({ matcherRegex }: Reg
             const responseHeaders: Array<[string, string]> = [];
 
             Object.entries(response.getHeaders()).forEach(([key, value]) => {
-                if (value) {
+                if (key === "location" && typeof value === "string" && URL.canParse(value, logUrl)) {
+                    responseHeaders.push([key, new URL(value, logUrl).href]);
+                } else if (value) {
                     responseHeaders.push([key, value.toString()]);
                 }
             });
@@ -145,14 +160,34 @@ export const registerRedirectionIoInstrumentation = async ({ matcherRegex }: Reg
     }
 };
 
+// Only the IP set by the Vercel platform can be trusted, any other header may be sent by the client
+function getClientIp(request: IncomingMessage, socketAddress: string | undefined) {
+    if (!IS_VERCEL) {
+        return socketAddress ?? request.socket.remoteAddress;
+    }
+
+    const vercelIp = request.headers["x-real-ip"];
+
+    return typeof vercelIp === "string" ? vercelIp : undefined;
+}
+
 function isNextPrefetchRequest(request: IncomingMessage) {
     return Boolean(request.headers["next-router-prefetch"] || request.headers["next-router-segment-prefetch"]);
 }
 
+// Vercel adds the query of a middleware rewrite to the URL seen by the function
+function isPublicUrlOf(publicUrl: URL, url: URL) {
+    return (
+        publicUrl.origin === url.origin &&
+        publicUrl.pathname === url.pathname &&
+        Array.from(publicUrl.searchParams).every(([name, value]) => url.searchParams.getAll(name).includes(value))
+    );
+}
+
 async function readForwardedData(
     request: IncomingMessage,
-    forwardedRequest: ForwardedRequest,
-): Promise<ForwardedMiddlewareData | null> {
+    url: URL,
+): Promise<{ data: ForwardedMiddlewareData; publicUrl: URL } | null> {
     const headerValue = (name: string) => {
         const value = request.headers[name];
 
@@ -172,8 +207,17 @@ async function readForwardedData(
         shouldLog: headerValue(REDIRECTIONIO_SHOULD_LOG_HEADER) === "1",
     };
 
+    const pathAndQuery = headerValue(REDIRECTIONIO_REQUEST_URL_HEADER) || url.pathname + url.search;
+    const publicUrl = URL.canParse(pathAndQuery, url) ? new URL(pathAndQuery, url) : null;
+
+    if (!publicUrl || !isPublicUrlOf(publicUrl, url)) {
+        return null;
+    }
+
+    const forwardedRequest: ForwardedRequest = { method: request.method ?? "", pathAndQuery };
+
     try {
-        return (await verifyForwardedData(data, forwardedRequest, signature)) ? data : null;
+        return (await verifyForwardedData(data, forwardedRequest, signature)) ? { data, publicUrl } : null;
     } catch (err) {
         console.error(err);
 

@@ -13,6 +13,7 @@ import {
     REDIRECTIONIO_MATCH_TIME_TIME_HEADER,
     REDIRECTIONIO_MIDDLEWARE_HEADER,
     REDIRECTIONIO_PROXY_RESPONSE_TIME_HEADER,
+    REDIRECTIONIO_REQUEST_URL_HEADER,
     REDIRECTIONIO_SHOULD_LOG_HEADER,
     REDIRECTIONIO_SIGNATURE_HEADER,
     REDIRECTIONIO_START_TIME_HEADER,
@@ -24,6 +25,7 @@ import { getStaticResponseStatus } from "./routes";
 import { Middleware } from "./types";
 
 const {
+    IS_VERCEL,
     REDIRECTIONIO_TOKEN,
     REDIRECTIONIO_INSTANCE_NAME,
     REDIRECTIONIO_VERSION,
@@ -169,7 +171,7 @@ async function handler(
 
     await redirectionio.init();
 
-    const ip = ipAddress(request);
+    const ip = IS_VERCEL ? ipAddress(request) : undefined;
     const url = stripNextRscSearchParam(new URL(publicUrl));
     const redirectionIORequest = createRedirectionIORequest({
         url,
@@ -198,10 +200,10 @@ async function handler(
 
     const rewriteUrl = response.headers.get("x-middleware-rewrite");
     const isFinalResponse = !response.headers.has("x-middleware-next") && !rewriteUrl;
-    const staticResponseStatus = isFinalResponse
-        ? undefined
-        : getStaticResponseStatus(request.method, rewriteUrl ?? request.url);
-    const isLoggedByMiddleware = isFinalResponse || staticResponseStatus !== undefined;
+    const staticResponseStatus =
+        isFinalResponse || !IS_VERCEL ? undefined : getStaticResponseStatus(request.method, rewriteUrl ?? request.url);
+    // Outside Vercel, every response goes through the Node.js server, so the instrumentation logs all of them
+    const isLoggedByMiddleware = IS_VERCEL && (isFinalResponse || staticResponseStatus !== undefined);
 
     await forwardDataToBackend(
         response,
@@ -218,7 +220,7 @@ async function handler(
 
     const location = response.headers.get("Location");
 
-    // Fix relative location header
+    // Next.js parses the Location of a middleware response without base URL, then sends it relative to the request
     if (location && location.startsWith("/")) {
         response.headers.set("Location", url.origin + location);
     }
@@ -262,6 +264,7 @@ async function forwardDataToBackend(
         [REDIRECTIONIO_MATCH_TIME_TIME_HEADER]: data.actionMatchTime.toString(),
         [REDIRECTIONIO_PROXY_RESPONSE_TIME_HEADER]: data.proxyResponseTime.toString(),
         [REDIRECTIONIO_SHOULD_LOG_HEADER]: data.shouldLog ? "1" : "0",
+        [REDIRECTIONIO_REQUEST_URL_HEADER]: forwardedRequest.pathAndQuery,
         [REDIRECTIONIO_SIGNATURE_HEADER]: await signForwardedData(data, forwardedRequest),
     };
     const existingOverride = response.headers.get("x-middleware-override-headers");
