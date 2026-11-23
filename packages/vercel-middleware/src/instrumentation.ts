@@ -1,7 +1,8 @@
 import * as redirectionio from "@redirection.io/redirectionio";
 import { waitUntil } from "@vercel/functions";
 import { getEnv } from "./env";
-import { IncomingMessage, ServerResponse } from "http";
+import type { IncomingMessage, ServerResponse } from "node:http";
+import type { TLSSocket } from "node:tls";
 import {
     createRedirectionIORequest,
     fetchRedirectionIOAction,
@@ -78,9 +79,7 @@ export const registerRedirectionIoInstrumentation = async ({ matcherRegex }: Reg
 
             const statusCode = response.statusCode;
 
-            const url = stripNextRscSearchParam(
-                new URL(requestUrl, `${request.headers["x-forwarded-proto"]}://${request.headers.host}`),
-            );
+            const url = stripNextRscSearchParam(new URL(requestUrl, getRequestOrigin(request)));
 
             // Route params added by Vercel to the query of dynamic routes (e.g. ?nxtPslug=value)
             Array.from(url.searchParams.keys())
@@ -140,10 +139,32 @@ export const registerRedirectionIoInstrumentation = async ({ matcherRegex }: Reg
         };
 
         channel.subscribe((message) => {
-            waitUntil(logResponse(message as ResponseFinishMessage).catch((err) => console.error(err)));
+            try {
+                waitUntil(
+                    logResponse(message as ResponseFinishMessage).catch((error) =>
+                        console.error("redirection.io: unable to log the request.", error),
+                    ),
+                );
+            } catch (error) {
+                console.error("redirection.io: unable to log the request.", error);
+            }
         });
     }
 };
+
+function getRequestOrigin(request: IncomingMessage) {
+    const firstValue = (value: string | string[] | undefined) =>
+        (Array.isArray(value) ? value[0] : value)?.split(",")[0].trim();
+    const forwardedProto = firstValue(request.headers["x-forwarded-proto"]);
+    const protocol =
+        forwardedProto === "http" || forwardedProto === "https"
+            ? forwardedProto
+            : (request.socket as TLSSocket).encrypted
+              ? "https"
+              : "http";
+
+    return `${protocol}://${firstValue(request.headers.host) || "localhost"}`;
+}
 
 function isNextPrefetchRequest(request: IncomingMessage) {
     return Boolean(request.headers["next-router-prefetch"] || request.headers["next-router-segment-prefetch"]);
