@@ -154,9 +154,15 @@ async function handler(
     await redirectionio.init();
 
     const ip = ipAddress(request);
+    const requestHeaders: Record<string, string> = {};
+
+    request.headers.forEach((value, key) => {
+        requestHeaders[key] = value;
+    });
+
     const redirectionIORequest = createRedirectionIORequest({
         url: new URL(request.url),
-        headers: Object.fromEntries(Object.entries(request.headers)) as Record<string, string>,
+        headers: requestHeaders,
         method: request.method,
         ip,
     });
