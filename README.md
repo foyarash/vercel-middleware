@@ -34,6 +34,8 @@ export const config = {
 
 Set the `REDIRECTIONIO_TOKEN` environment variable in your vercel project settings.
 
+To debug the middleware, set `REDIRECTIONIO_DEBUG_HEADERS=true`: responses will then include the `x-redirectionio-action`, `x-redirectionio-start-time`, `x-redirectionio-action-match-time` and `x-redirectionio-proxy-response-time` headers. They are not sent by default, as they expose internal rule details to visitors.
+
 Then create a `instrumentation.ts` file in the same folder as the `proxy.ts` file with the following content:
 
 ```typescript
