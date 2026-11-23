@@ -146,6 +146,10 @@ from `@redirection.io/vercel-middleware/next` which is compatible with `NextRequ
 
 ```
 
+The `NextRequest` given to `previousMiddleware` and `nextMiddleware` is built with the Next.js config of the original
+request (`basePath`, `i18n`, `trailingSlash`), so `request.nextUrl.basePath`, `request.nextUrl.locale` and
+`request.nextUrl.pathname` match what Next.js gives to your own middleware.
+
 ### Webpack
 
 If you are using Webpack in your Next.js application, you will need to add the following in your Next config :

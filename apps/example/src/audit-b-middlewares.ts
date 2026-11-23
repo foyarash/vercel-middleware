@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 
-type AuditBRequest = Pick<Request, "url" | "headers"> & { nextUrl: { pathname: string } };
+type AuditBRequest = Pick<Request, "url" | "headers"> & {
+    nextUrl: { pathname: string; basePath: string; locale: string };
+};
 
 const AUDIT_B_PREFIX = "/audit-b-";
 const AUDIT_B_TARGET = "/audit-b-target";
@@ -15,11 +17,18 @@ export const auditBPreviousMiddleware = (request: AuditBRequest) => {
     const headers = new Headers(request.headers);
     headers.set("x-audit-b-previous", "previous");
 
-    const response = NextResponse.rewrite(new URL(`${AUDIT_B_TARGET}?from=${pathname}`, request.url), {
-        request: { headers },
-    });
+    const response = NextResponse.rewrite(
+        new URL(`${request.nextUrl.basePath}${AUDIT_B_TARGET}?from=${pathname}`, request.url),
+        {
+            request: { headers },
+        },
+    );
     response.cookies.set("audit-b-previous", "previous");
     response.headers.set("x-audit-b-previous-response", "previous");
+    response.headers.set(
+        "x-audit-b-next-url",
+        JSON.stringify({ basePath: request.nextUrl.basePath, locale: request.nextUrl.locale, pathname }),
+    );
 
     return response;
 };
