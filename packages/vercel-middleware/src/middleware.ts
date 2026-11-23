@@ -273,72 +273,6 @@ async function forwardDataToBackend(
     response.headers.set("x-middleware-override-headers", Array.from(overriddenHeaders).join(","));
 }
 
-function splitSetCookies(cookiesString: string) {
-    const cookiesStrings = [];
-    let pos = 0;
-    let start;
-    let ch;
-    let lastComma;
-    let nextStart;
-    let cookiesSeparatorFound;
-
-    function skipWhitespace() {
-        while (pos < cookiesString.length && /\s/.test(cookiesString.charAt(pos))) {
-            pos += 1;
-        }
-        return pos < cookiesString.length;
-    }
-
-    function notSpecialChar() {
-        ch = cookiesString.charAt(pos);
-
-        return ch !== "=" && ch !== ";" && ch !== ",";
-    }
-
-    while (pos < cookiesString.length) {
-        start = pos;
-        cookiesSeparatorFound = false;
-
-        while (skipWhitespace()) {
-            ch = cookiesString.charAt(pos);
-            if (ch === ",") {
-                // ',' is a cookie separator if we have later first '=', not ';' or ','
-                lastComma = pos;
-                pos += 1;
-
-                skipWhitespace();
-                nextStart = pos;
-
-                while (pos < cookiesString.length && notSpecialChar()) {
-                    pos += 1;
-                }
-
-                // currently special character
-                if (pos < cookiesString.length && cookiesString.charAt(pos) === "=") {
-                    // we found cookies separator
-                    cookiesSeparatorFound = true;
-                    // pos is inside the next cookie, so back up and return it.
-                    pos = nextStart;
-                    cookiesStrings.push(cookiesString.substring(start, lastComma));
-                    start = pos;
-                } else {
-                    // in param ',' or param separator ';',
-                    // we continue from that comma
-                    pos = lastComma + 1;
-                }
-            } else {
-                pos += 1;
-            }
-        }
-
-        if (!cookiesSeparatorFound || pos >= cookiesString.length) {
-            cookiesStrings.push(cookiesString.substring(start, cookiesString.length));
-        }
-    }
-
-    return cookiesStrings;
-}
-
 function mergeMiddlewareResponses(
     target: Response,
     middlewareResponses: Array<Response | null>,
@@ -413,9 +347,7 @@ function middlewareResponseToRequest(originalRequest: Request, response: Respons
         }
     }
 
-    const middlewareCookies = response.headers.get("x-middleware-set-cookie");
-
-    if (middlewareCookies) {
+    if (response.headers.has("x-middleware-set-cookie")) {
         const cookies = new Map(
             (request.headers.get("cookie") ?? "")
                 .split(";")
@@ -424,7 +356,7 @@ function middlewareResponseToRequest(originalRequest: Request, response: Respons
                 .map((cookie) => [cookie.split("=")[0], cookie]),
         );
 
-        splitSetCookies(middlewareCookies).forEach((setCookie) => {
+        response.headers.getSetCookie().forEach((setCookie) => {
             const cookie = setCookie.split(";")[0].trim();
             cookies.set(cookie.split("=")[0], cookie);
         });
@@ -466,16 +398,12 @@ async function proxy(
         const headerMap = new redirectionio.HeaderMap();
 
         response.headers.forEach((value, key) => {
-            if (key === "set-cookie") {
-                const cookies = splitSetCookies(value);
-
-                for (const cookie of cookies) {
-                    headerMap.add_header("set-cookie", cookie);
-                }
-            } else {
+            if (key !== "set-cookie") {
                 headerMap.add_header(key, value);
             }
         });
+
+        response.headers.getSetCookie().forEach((cookie) => headerMap.add_header("set-cookie", cookie));
 
         request.headers.forEach((value, key) => {
             if (includedRequestHeadersInResponse?.includes(key)) {
