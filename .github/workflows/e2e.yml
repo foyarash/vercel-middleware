@@ -5,13 +5,13 @@ on:
             - "master"
         paths:
             - "packages/**"
-            - "apps/example"
-            - "apps/example-*"
+            - "apps/**"
+            - ".github/workflows/e2e.yml"
     pull_request:
         paths:
             - "packages/**"
-            - "apps/example"
-            - "apps/example-*"
+            - "apps/**"
+            - ".github/workflows/e2e.yml"
 jobs:
     start:
         runs-on: ubuntu-latest
@@ -45,12 +45,23 @@ jobs:
               env:
                   REDIRECTIONIO_TOKEN: ${{ secrets.REDIRECTIONIO_TOKEN }}
               run: yarn start:examples &
+            - name: Wait for servers
+              run: |
+                  for port in 3000 3001 3002 3003; do
+                      url="http://localhost:$port/api/hello"
+                      timeout 120 bash -c \
+                          "until curl -so /dev/null $url; do sleep 1; done"
+                  done
             - name: Run tests
               run: |
-                  echo "Run E2E tests for Next.js with Turbopack"
+                  echo "Run E2E tests for Next.js 16 with Turbopack"
                   BASE_URL=http://localhost:3000 yarn test:e2e
-                  echo "Run E2E tests for Next.js with Webpack"
+                  echo "Run E2E tests for Next.js 16 with Webpack"
                   BASE_URL=http://localhost:3001 yarn test:e2e
+                  echo "Run E2E tests for Next.js 15"
+                  BASE_URL=http://localhost:3002 yarn test:e2e
+                  echo "Run E2E tests for Next.js 14"
+                  BASE_URL=http://localhost:3003 yarn test:e2e
             - uses: actions/upload-artifact@v4
               if: ${{ !cancelled() }}
               with:
