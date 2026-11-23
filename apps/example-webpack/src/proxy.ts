@@ -1,6 +1,10 @@
 import { createRedirectionIoMiddleware } from "@redirection.io/vercel-middleware/next";
+import { chainedNextMiddleware, chainedPreviousMiddleware } from "./chained-middlewares";
 
-export default createRedirectionIoMiddleware({});
+export default createRedirectionIoMiddleware({
+    previousMiddleware: chainedPreviousMiddleware,
+    nextMiddleware: chainedNextMiddleware,
+});
 
 export const config = {
     unstable_allowDynamic: ["/node_modules/@redirection.io/**"],

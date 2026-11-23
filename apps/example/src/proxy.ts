@@ -1,9 +1,9 @@
 import { createRedirectionIoMiddleware } from "@redirection.io/vercel-middleware/next";
-import { auditBNextMiddleware, auditBPreviousMiddleware } from "./audit-b-middlewares";
+import { chainedNextMiddleware, chainedPreviousMiddleware } from "./chained-middlewares";
 
 export default createRedirectionIoMiddleware({
-    previousMiddleware: auditBPreviousMiddleware,
-    nextMiddleware: auditBNextMiddleware,
+    previousMiddleware: chainedPreviousMiddleware,
+    nextMiddleware: chainedNextMiddleware,
 });
 
 export const config = {
