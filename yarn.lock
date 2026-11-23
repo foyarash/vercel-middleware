@@ -1378,7 +1378,7 @@ __metadata:
     "@types/node": "npm:^26.6.6"
     "@vercel/functions": "npm:^3.11.3"
     glob: "npm:^14.0.6"
-    next: "npm:^14.2.35"
+    next: "npm:^16.4.6"
     oxfmt: "catalog:"
     oxlint: "catalog:"
     tsup: "npm:^9.0.0"
@@ -3408,7 +3408,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"next@npm:14.2.35, next@npm:^14.2.35":
+"next@npm:14.2.35":
   version: 14.2.35
   resolution: "next@npm:14.2.35"
   dependencies:
@@ -3525,7 +3525,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"next@npm:16.4.6":
+"next@npm:16.4.6, next@npm:^16.4.6":
   version: 16.4.6
   resolution: "next@npm:16.4.6"
   dependencies:

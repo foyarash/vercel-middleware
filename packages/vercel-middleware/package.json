@@ -57,7 +57,7 @@
     "devDependencies": {
         "@types/node": "^26.6.6",
         "glob": "^14.0.6",
-        "next": "^14.2.35",
+        "next": "^16.4.6",
         "oxfmt": "catalog:",
         "oxlint": "catalog:",
         "tsup": "^9.0.0",
