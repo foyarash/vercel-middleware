@@ -5,6 +5,7 @@ import {
     createRedirectionIORequest,
     fetchRedirectionIOAction,
     ForwardedMiddlewareData,
+    ForwardedRequest,
     REDIRECTIONIO_ACTION_HEADER,
     REDIRECTIONIO_MATCH_TIME_TIME_HEADER,
     REDIRECTIONIO_PROXY_RESPONSE_TIME_HEADER,
@@ -52,7 +53,11 @@ export const registerRedirectionIoInstrumentation = async () => {
 
             const statusCode = response.statusCode;
 
-            const forwardedData = await readForwardedData(request);
+            const url = new URL(requestUrl, `${request.headers["x-forwarded-proto"]}://${request.headers.host}`);
+            const forwardedData = await readForwardedData(request, {
+                method: request.method ?? "",
+                pathAndQuery: url.pathname + url.search,
+            });
             const now = Date.now();
             const proxyResponseTime = forwardedData?.proxyResponseTime ?? now;
             const actionMatchTime = forwardedData?.actionMatchTime ?? now;
@@ -62,7 +67,7 @@ export const registerRedirectionIoInstrumentation = async () => {
             const ip = (request.headers["x-real-ip"] as string) || request.socket.remoteAddress;
 
             const redirectionIORequest = createRedirectionIORequest({
-                url: new URL(requestUrl, `${request.headers["x-forwarded-proto"]}://${request.headers.host}`),
+                url,
                 headers: request.headers as Record<string, string>,
                 method: request.method!,
                 ip,
@@ -90,7 +95,10 @@ export const registerRedirectionIoInstrumentation = async () => {
     }
 };
 
-async function readForwardedData(request: IncomingMessage): Promise<ForwardedMiddlewareData | null> {
+async function readForwardedData(
+    request: IncomingMessage,
+    forwardedRequest: ForwardedRequest,
+): Promise<ForwardedMiddlewareData | null> {
     const headerValue = (name: string) => {
         const value = request.headers[name];
 
@@ -110,7 +118,7 @@ async function readForwardedData(request: IncomingMessage): Promise<ForwardedMid
     };
 
     try {
-        return (await verifyForwardedData(data, signature)) ? data : null;
+        return (await verifyForwardedData(data, forwardedRequest, signature)) ? data : null;
     } catch (err) {
         console.error(err);
 

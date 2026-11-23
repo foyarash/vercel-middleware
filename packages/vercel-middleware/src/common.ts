@@ -16,6 +16,13 @@ export type ForwardedMiddlewareData = {
     proxyResponseTime: number;
 };
 
+export type ForwardedRequest = {
+    method: string;
+    pathAndQuery: string;
+};
+
+const FORWARDED_DATA_MAX_AGE_MS = 60_000;
+
 const textEncoder = new TextEncoder();
 
 function importSigningKey() {
@@ -28,29 +35,38 @@ function importSigningKey() {
     );
 }
 
-function serializeForwardedData({
-    action,
-    startTimestamp,
-    actionMatchTime,
-    proxyResponseTime,
-}: ForwardedMiddlewareData) {
-    return textEncoder.encode([startTimestamp, actionMatchTime, proxyResponseTime, action].join("\n"));
+function serializeForwardedData(
+    { action, startTimestamp, actionMatchTime, proxyResponseTime }: ForwardedMiddlewareData,
+    { method, pathAndQuery }: ForwardedRequest,
+) {
+    return textEncoder.encode(
+        [method.toUpperCase(), pathAndQuery, startTimestamp, actionMatchTime, proxyResponseTime, action].join("\n"),
+    );
 }
 
-export async function signForwardedData(data: ForwardedMiddlewareData) {
-    const signature = await crypto.subtle.sign("HMAC", await importSigningKey(), serializeForwardedData(data));
+export async function signForwardedData(data: ForwardedMiddlewareData, request: ForwardedRequest) {
+    const signature = await crypto.subtle.sign("HMAC", await importSigningKey(), serializeForwardedData(data, request));
 
     return Array.from(new Uint8Array(signature), (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
-export async function verifyForwardedData(data: ForwardedMiddlewareData, signature: string) {
+export async function verifyForwardedData(data: ForwardedMiddlewareData, request: ForwardedRequest, signature: string) {
     if (!/^[0-9a-f]{64}$/.test(signature)) {
+        return false;
+    }
+
+    if (!(Math.abs(Date.now() - data.startTimestamp) <= FORWARDED_DATA_MAX_AGE_MS)) {
         return false;
     }
 
     const signatureBytes = new Uint8Array((signature.match(/../g) ?? []).map((byte) => parseInt(byte, 16)));
 
-    return crypto.subtle.verify("HMAC", await importSigningKey(), signatureBytes, serializeForwardedData(data));
+    return crypto.subtle.verify(
+        "HMAC",
+        await importSigningKey(),
+        signatureBytes,
+        serializeForwardedData(data, request),
+    );
 }
 
 export async function fetchRedirectionIOAction(redirectionIORequest: redirectionio.Request) {
