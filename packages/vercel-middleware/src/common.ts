@@ -25,12 +25,14 @@ export const REDIRECTIONIO_MATCH_TIME_TIME_HEADER = "x-redirectionio-action-matc
 export const REDIRECTIONIO_ACTION_HEADER = "x-redirectionio-action";
 export const REDIRECTIONIO_SIGNATURE_HEADER = "x-redirectionio-signature";
 export const REDIRECTIONIO_MIDDLEWARE_HEADER = "x-redirectionio-middleware";
+export const REDIRECTIONIO_SHOULD_LOG_HEADER = "x-redirectionio-should-log";
 
 export type ForwardedMiddlewareData = {
     action: string;
     startTimestamp: number;
     actionMatchTime: number;
     proxyResponseTime: number;
+    shouldLog: boolean;
 };
 
 export type ForwardedRequest = {
@@ -78,11 +80,19 @@ export async function isMiddlewareLoopRequest(markerValue: string | string[] | n
 }
 
 function serializeForwardedData(
-    { action, startTimestamp, actionMatchTime, proxyResponseTime }: ForwardedMiddlewareData,
+    { action, startTimestamp, actionMatchTime, proxyResponseTime, shouldLog }: ForwardedMiddlewareData,
     { method, pathAndQuery }: ForwardedRequest,
 ) {
     return textEncoder.encode(
-        [method.toUpperCase(), pathAndQuery, startTimestamp, actionMatchTime, proxyResponseTime, action].join("\n"),
+        [
+            method.toUpperCase(),
+            pathAndQuery,
+            startTimestamp,
+            actionMatchTime,
+            proxyResponseTime,
+            shouldLog ? "1" : "0",
+            action,
+        ].join("\n"),
     );
 }
 
@@ -130,6 +140,66 @@ export async function fetchRedirectionIOAction(redirectionIORequest: redirection
         console.error(e);
 
         return redirectionio.Action.empty();
+    }
+}
+
+type LogRequestParams = {
+    redirectionioRequest: redirectionio.Request;
+    statusCode: number;
+    backendStatusCode: number;
+    responseHeaders: Array<[string, string]>;
+    action: redirectionio.Action;
+    startTimestamp: number;
+    actionMatchTime: number;
+    proxyResponseTime: number;
+    clientIP: string | undefined;
+};
+
+export async function logRequest({
+    redirectionioRequest,
+    statusCode,
+    backendStatusCode,
+    responseHeaders,
+    action,
+    startTimestamp,
+    actionMatchTime,
+    proxyResponseTime,
+    clientIP,
+}: LogRequestParams) {
+    if (!action.should_log_request(backendStatusCode)) {
+        return;
+    }
+
+    const responseHeaderMap = new redirectionio.HeaderMap();
+
+    responseHeaders.forEach(([key, value]) => {
+        responseHeaderMap.add_header(key, value);
+    });
+
+    try {
+        const logAsJson = redirectionio.create_log_in_json(
+            redirectionioRequest,
+            statusCode,
+            responseHeaderMap,
+            action,
+            "vercel-edge-middleware/" + REDIRECTIONIO_VERSION,
+            BigInt(startTimestamp),
+            BigInt(actionMatchTime),
+            BigInt(proxyResponseTime),
+            clientIP ?? "",
+        );
+
+        await fetch("https://agent.redirection.io/" + REDIRECTIONIO_TOKEN + "/log", {
+            method: "POST",
+            body: logAsJson,
+            headers: {
+                "User-Agent": "vercel-edge-middleware/" + REDIRECTIONIO_VERSION,
+                "x-redirectionio-instance-name": REDIRECTIONIO_INSTANCE_NAME,
+            },
+            cache: "no-store",
+        });
+    } catch (err) {
+        console.error(err);
     }
 }
 

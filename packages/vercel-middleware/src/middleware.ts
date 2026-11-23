@@ -1,8 +1,9 @@
 import * as redirectionio from "@redirection.io/redirectionio";
 import { next, RequestContext } from "@vercel/edge";
-import { ipAddress } from "@vercel/functions";
+import { ipAddress, waitUntil } from "@vercel/functions";
 import {
     createRedirectionIORequest,
+    logRequest,
     ForwardedMiddlewareData,
     ForwardedRequest,
     getMiddlewareLoopMarker,
@@ -11,6 +12,7 @@ import {
     REDIRECTIONIO_MATCH_TIME_TIME_HEADER,
     REDIRECTIONIO_MIDDLEWARE_HEADER,
     REDIRECTIONIO_PROXY_RESPONSE_TIME_HEADER,
+    REDIRECTIONIO_SHOULD_LOG_HEADER,
     REDIRECTIONIO_SIGNATURE_HEADER,
     REDIRECTIONIO_START_TIME_HEADER,
     signForwardedData,
@@ -87,6 +89,8 @@ export const createRedirectionIoMiddleware = <R extends Request = Request, C ext
         return handler(
             middlewareRequest,
             config.includedRequestHeadersInResponse,
+            config.logged ?? true,
+            (promise) => (context?.waitUntil ? context.waitUntil(promise) : waitUntil(promise)),
             async (request, useFetch): Promise<Response> => {
                 let response: Response | null = null;
 
@@ -140,6 +144,8 @@ export default defaultMiddleware;
 async function handler(
     request: Request,
     includedRequestHeadersInResponse: string[] | undefined,
+    isLogged: boolean,
+    runInBackground: (promise: Promise<unknown>) => void,
     fetchResponse: FetchResponse,
 ): Promise<Response> {
     if (!REDIRECTIONIO_TOKEN) {
@@ -156,14 +162,14 @@ async function handler(
     const ip = ipAddress(request);
     const redirectionIORequest = createRedirectionIORequest({
         url: new URL(request.url),
-        headers: Object.fromEntries(Object.entries(request.headers)) as Record<string, string>,
+        headers: Object.fromEntries(request.headers),
         method: request.method,
         ip,
     });
     const action = await fetchRedirectionIOAction(redirectionIORequest);
     const actionMatchTime = Date.now();
     const middlewareLoopMarker = await getMiddlewareLoopMarker();
-    const [response] = await proxy(request, action, includedRequestHeadersInResponse, (request) => {
+    const [response, backendStatusCode] = await proxy(request, action, includedRequestHeadersInResponse, (request) => {
         request.headers.set(REDIRECTIONIO_MIDDLEWARE_HEADER, middlewareLoopMarker);
 
         // skip fetch if we are in light mode
@@ -180,6 +186,7 @@ async function handler(
     }
 
     const url = new URL(request.url);
+    const isFinalResponse = !response.headers.has("x-middleware-next") && !response.headers.has("x-middleware-rewrite");
 
     await forwardDataToBackend(
         response,
@@ -189,6 +196,7 @@ async function handler(
             startTimestamp,
             actionMatchTime,
             proxyResponseTime,
+            shouldLog: isLogged && !isFinalResponse,
         },
         { method: request.method, pathAndQuery: url.pathname + url.search },
     );
@@ -198,6 +206,30 @@ async function handler(
     // Fix relative location header
     if (location && location.startsWith("/")) {
         response.headers.set("Location", url.origin + location);
+    }
+
+    if (isLogged && isFinalResponse) {
+        const responseHeaders: Array<[string, string]> = [];
+
+        response.headers.forEach((value, key) => {
+            if (!key.startsWith("x-middleware-")) {
+                responseHeaders.push([key, value]);
+            }
+        });
+
+        runInBackground(
+            logRequest({
+                redirectionioRequest: redirectionIORequest,
+                statusCode: response.status,
+                backendStatusCode,
+                responseHeaders,
+                action,
+                startTimestamp,
+                actionMatchTime,
+                proxyResponseTime,
+                clientIP: ip,
+            }),
+        );
     }
 
     return response;
@@ -214,6 +246,7 @@ async function forwardDataToBackend(
         [REDIRECTIONIO_START_TIME_HEADER]: data.startTimestamp.toString(),
         [REDIRECTIONIO_MATCH_TIME_TIME_HEADER]: data.actionMatchTime.toString(),
         [REDIRECTIONIO_PROXY_RESPONSE_TIME_HEADER]: data.proxyResponseTime.toString(),
+        [REDIRECTIONIO_SHOULD_LOG_HEADER]: data.shouldLog ? "1" : "0",
         [REDIRECTIONIO_SIGNATURE_HEADER]: await signForwardedData(data, forwardedRequest),
     };
     const existingOverride = response.headers.get("x-middleware-override-headers");

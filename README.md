@@ -53,6 +53,26 @@ instrumentation ignores any `x-redirectionio-*` request header without a valid s
 client) and fetches the action itself instead. Both runtimes therefore need the same `REDIRECTIONIO_TOKEN` and access to
 the Web Crypto API (`crypto.subtle`, available on Node.js 20+).
 
+### Logging
+
+Each request handled by redirection.io is logged exactly once:
+
+-   when the middleware produces the final response itself (redirection, custom status such as a `410`, or a response
+    proxified to apply headers or body filters), the middleware sends the log, in the background with `waitUntil`;
+-   when the middleware lets the request through (`next()` or a rewrite), the instrumentation sends the log once the
+    backend function answered, with its real status code (for example a `404` page), also with `waitUntil` so that the
+    function is not frozen before the log is sent;
+-   requests the middleware does not handle (for example `/api/*` routes with the default `matcherRegex`) are logged by
+    the instrumentation only.
+
+> **Note:** on Vercel, static and ISR pages served from the CDN cache never reach a function, so they are not logged
+> when the middleware lets them through. Requests answered by the middleware itself are always logged. With
+> `next start`, every request goes through the Node.js server and is logged.
+
+The instrumentation ignores the Vercel internal requests (`/_vercel/*`) and the invocation of a Node.js middleware
+(Next.js 16 `proxy.ts`), which runs in its own function on Vercel. With `logged: false`, neither the middleware nor the
+instrumentation logs the requests handled by the middleware.
+
 Then, deploy your project to Vercel.
 
 ```bash
@@ -122,6 +142,7 @@ Here's a summary of the middleware options:
 | `previousMiddleware` | Function          | Middleware to be executed before redirection.io middleware                                               |
 | `nextMiddleware`     | Function          | Middleware to be executed after redirection.io middleware                                                |
 | `matcherRegex`       | String or null    | Regex to specify which routes should be handled by redirection.io middleware                             |
+| `logged`             | Boolean           | Whether the requests handled by the middleware are logged in redirection.io (default: `true`)            |
 
 ## Next.js
 
