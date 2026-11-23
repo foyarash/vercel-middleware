@@ -218,7 +218,7 @@ async function handler(
 
     const location = response.headers.get("Location");
 
-    // Fix relative location header
+    // Next.js parses the Location of a middleware response without base URL, then sends it relative to the request
     if (location && location.startsWith("/")) {
         response.headers.set("Location", url.origin + location);
     }

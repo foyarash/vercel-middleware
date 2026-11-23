@@ -53,6 +53,13 @@ instrumentation ignores any `x-redirectionio-*` request header without a valid s
 client) and fetches the action itself instead. Both runtimes therefore need the same `REDIRECTIONIO_TOKEN` and access to
 the Web Crypto API (`crypto.subtle`, available on Node.js 20+).
 
+### Redirections
+
+With Next.js, the `Location` header of a redirection to the same host is relative (for example
+`Location: /new-page`): Next.js rewrites any same-origin `Location` returned by a middleware/proxy relative to the
+request, locally and on Vercel. This is allowed by [RFC 9110](https://www.rfc-editor.org/rfc/rfc9110#field.location)
+and followed by browsers and HTTP clients. The logs keep the absolute target URL.
+
 ### Logging
 
 Each request handled by redirection.io is logged exactly once, in the background with `waitUntil`:
