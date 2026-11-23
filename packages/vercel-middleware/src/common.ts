@@ -7,6 +7,37 @@ export const REDIRECTIONIO_PROXY_RESPONSE_TIME_HEADER = "x-redirectionio-proxy-r
 export const REDIRECTIONIO_START_TIME_HEADER = "x-redirectionio-start-time";
 export const REDIRECTIONIO_MATCH_TIME_TIME_HEADER = "x-redirectionio-action-match-time";
 export const REDIRECTIONIO_ACTION_HEADER = "x-redirectionio-action";
+export const REDIRECTIONIO_MIDDLEWARE_HEADER = "x-redirectionio-middleware";
+
+let middlewareLoopMarker: Promise<string> | undefined;
+
+export function getMiddlewareLoopMarker(): Promise<string> {
+    middlewareLoopMarker ??= computeMiddlewareLoopMarker();
+
+    return middlewareLoopMarker;
+}
+
+async function computeMiddlewareLoopMarker() {
+    const encoder = new TextEncoder();
+    const key = await crypto.subtle.importKey(
+        "raw",
+        encoder.encode(REDIRECTIONIO_TOKEN),
+        { name: "HMAC", hash: "SHA-256" },
+        false,
+        ["sign"],
+    );
+    const signature = await crypto.subtle.sign("HMAC", key, encoder.encode(REDIRECTIONIO_MIDDLEWARE_HEADER));
+
+    return Array.from(new Uint8Array(signature), (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+export async function isMiddlewareLoopRequest(markerValue: string | string[] | null | undefined) {
+    if (typeof markerValue !== "string" || !REDIRECTIONIO_TOKEN) {
+        return false;
+    }
+
+    return markerValue === (await getMiddlewareLoopMarker());
+}
 
 export async function fetchRedirectionIOAction(redirectionIORequest: redirectionio.Request) {
     try {

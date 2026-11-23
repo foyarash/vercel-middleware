@@ -4,8 +4,10 @@ import { IncomingMessage, ServerResponse } from "http";
 import {
     createRedirectionIORequest,
     fetchRedirectionIOAction,
+    isMiddlewareLoopRequest,
     REDIRECTIONIO_ACTION_HEADER,
     REDIRECTIONIO_MATCH_TIME_TIME_HEADER,
+    REDIRECTIONIO_MIDDLEWARE_HEADER,
     REDIRECTIONIO_PROXY_RESPONSE_TIME_HEADER,
     REDIRECTIONIO_START_TIME_HEADER,
 } from "./common";
@@ -41,9 +43,7 @@ export const registerRedirectionIoInstrumentation = async () => {
                 return; // Skip logging
             }
 
-            const isRioMiddlewareRequest = request.headers["x-redirectionio-middleware"] === "true";
-
-            if (isRioMiddlewareRequest) {
+            if (await isMiddlewareLoopRequest(request.headers[REDIRECTIONIO_MIDDLEWARE_HEADER])) {
                 return;
             }
 
