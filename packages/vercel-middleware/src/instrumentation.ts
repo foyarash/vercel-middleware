@@ -38,7 +38,7 @@ export const registerRedirectionIoInstrumentation = async ({ matcherRegex }: Reg
 
         await redirectionio.init();
 
-        const diagnostics = require("diagnostics_channel");
+        const diagnostics = await import("node:diagnostics_channel");
         const channel = diagnostics.channel("http.server.response.finish");
 
         const logResponse = async ({ request, response }: ResponseFinishMessage) => {
@@ -139,8 +139,8 @@ export const registerRedirectionIoInstrumentation = async ({ matcherRegex }: Reg
             });
         };
 
-        channel.subscribe((message: ResponseFinishMessage) => {
-            waitUntil(logResponse(message).catch((err) => console.error(err)));
+        channel.subscribe((message) => {
+            waitUntil(logResponse(message as ResponseFinishMessage).catch((err) => console.error(err)));
         });
     }
 };
