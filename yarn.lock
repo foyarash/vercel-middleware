@@ -1376,7 +1376,6 @@ __metadata:
   dependencies:
     "@redirection.io/redirectionio": "npm:^3.4.0"
     "@types/node": "npm:^26.6.6"
-    "@vercel/edge": "npm:^1.3.3"
     "@vercel/functions": "npm:^3.11.3"
     glob: "npm:^14.0.6"
     next: "npm:^14.2.35"
@@ -2099,13 +2098,6 @@ __metadata:
   dependencies:
     execa: "npm:5.1.1"
   checksum: 10c0/4063e59898e5984249a933ace889b152e392f64640fe4d9f6edb8b9bf4c76d43216f561c3774e30a0fe17248ff2732b44dfed017bd73de79a3a245bb0769f0ea
-  languageName: node
-  linkType: hard
-
-"@vercel/edge@npm:^1.3.3":
-  version: 1.3.3
-  resolution: "@vercel/edge@npm:1.3.3"
-  checksum: 10c0/b31c0aa1b2ed4a1780d50c0e265be5ef94e48d827c70b16f673213fc42613f1afa73a52ac1b7dc94b65ee3be0a98f0446d31cf992439d850fe0bb6a3b0f2da7f
   languageName: node
   linkType: hard
 
