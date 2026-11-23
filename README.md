@@ -118,11 +118,34 @@ prevents a loop. The client IP (`x-forwarded-for`, `x-real-ip`) is kept, and wit
 client credentials (`_vercel_jwt` cookie, `x-vercel-protection-bypass` header) are reused, so a visitor allowed to see
 a protected preview also gets the proxified page; no bypass secret is added by the middleware.
 
+The request body is never buffered by the middleware: it is streamed to the deployment only when the request is
+proxified, and is otherwise left to Next.js (uploads are not read by the middleware).
+
 Then, deploy your project to Vercel.
 
 ```bash
 vercel deploy
 ```
+
+### Environment variables
+
+| Variable                                    | Value                                   | Default                            |
+| ------------------------------------------- | --------------------------------------- | ---------------------------------- |
+| `REDIRECTIONIO_TOKEN`                       | Token of your redirection.io instance   | (required)                         |
+| `REDIRECTIONIO_INSTANCE_NAME`               | Name of the instance shown in the logs  | `redirection-io-vercel-middleware` |
+| `REDIRECTIONIO_TIMEOUT`                     | Positive integer, in milliseconds       | `500`                              |
+| `REDIRECTIONIO_DEBUG_HEADERS`               | `true` or `false`                       | `false`                            |
+| `REDIRECTIONIO_ADD_HEADER_RULE_IDS`         | `true` or `false`                       | `false`                            |
+| `REDIRECTIONIO_FORWARDED_SENSITIVE_HEADERS` | Comma-separated list of header names    | (empty)                            |
+
+An invalid value does not break your application: a warning is logged in the console and the default value is used.
+
+### Agent requests
+
+The middleware waits for the action of the redirection.io agent at most `REDIRECTIONIO_TIMEOUT` milliseconds (default:
+`500`), and a log request at most 5 seconds; the request is then aborted. When the agent does not answer in time or
+answers with an error status (`401`, `403`, `429`, `5xx`…), an error is logged in the console and no rule is applied to
+the request.
 
 ### Sensitive request headers
 
@@ -157,9 +180,8 @@ const myExistingMiddleware = (request: Request) => {
 const middleware = createRedirectionIoMiddleware({
     previousMiddleware: myExistingMiddleware, // In this case your middleware is executed before redirection.io middleware
     nextMiddleware: myExistingMiddleware, // In this case your middleware is executed after redirection.io middleware
-    // Optional: matcher to specify which routes should be ignored by redirection.io middleware
-    // Default: "^/((?!api/|_next/|_static/|_vercel|[\\w-]+\\.\\w+).*)$"
-    matcherRegex: "^/((?!api/|_next/|_static/|_vercel|[\\w-]+\\.\\w+).*)$",
+    // Optional: regex of the paths handled by redirection.io middleware (default: see below)
+    matcherRegex: "^/(?!api/|_next/|_static/|_vercel)",
     // Optional: If light, redirection.io middleware will only redirect and not override the response
     // Default: "full"
     mode: "light",
@@ -174,9 +196,20 @@ export default middleware;
 By default, our middleware ignores certain routes even if there's an exported configuration. The ignored routes are:
 
 -   `/api/*` routes
--   `/next/*` (Next.js internals)
--   `/static/*` (inside `/public`)
--   all root files inside /public (e.g. /favicon.ico)
+-   `/_next/*` (Next.js internals) and `/_vercel*` (Vercel internals)
+-   `/_static/*`
+-   static assets at any level, by extension: scripts and styles (`.js`, `.mjs`, `.css`, `.map`, `.json`), images
+    (`.png`, `.jpg`, `.jpeg`, `.gif`, `.svg`, `.ico`, `.webp`, `.avif`, `.bmp`), fonts (`.woff`, `.woff2`, `.ttf`,
+    `.otf`, `.eot`), `.webmanifest` and media (`.mp4`, `.webm`, `.mp3`)
+
+Other URLs with an extension are handled, so that legacy URLs can be redirected (`/old-page.html`, `/blog/post.php`,
+`/page.aspx`, `/document.pdf`, `/robots.txt`, `/sitemap.xml`…). The default regex is:
+
+```text
+^/(?!api/|_next/|_static/|_vercel)(?!.*\.(?:css|js|mjs|map|json|png|jpe?g|gif|svg|ico|webp|avif|bmp|woff2?|ttf|otf|eot|webmanifest|mp4|webm|mp3)$).*$
+```
+
+The `matcher` exported in the `config` of your `middleware.ts`/`proxy.ts` must also let these URLs through.
 
 If you want the middleware to handle all routes without any exclusions, you can set the `matcherRegex` option to `null`:
 

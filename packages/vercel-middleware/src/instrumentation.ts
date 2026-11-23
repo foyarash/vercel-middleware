@@ -1,7 +1,8 @@
 import * as redirectionio from "@redirection.io/redirectionio";
 import { waitUntil } from "@vercel/functions";
 import { getEnv } from "./env";
-import { IncomingMessage, ServerResponse } from "http";
+import type { IncomingMessage, ServerResponse } from "node:http";
+import type { TLSSocket } from "node:tls";
 import {
     createRedirectionIORequest,
     fetchRedirectionIOAction,
@@ -18,6 +19,7 @@ import {
     REDIRECTIONIO_SHOULD_LOG_HEADER,
     REDIRECTIONIO_SIGNATURE_HEADER,
     REDIRECTIONIO_START_TIME_HEADER,
+    STATIC_ASSET_EXTENSIONS,
     stripNextRscSearchParam,
     verifyForwardedData,
 } from "./common";
@@ -26,6 +28,24 @@ const { IS_VERCEL, REDIRECTIONIO_TOKEN } = getEnv();
 type ResponseFinishMessage = { request: IncomingMessage; response: ServerResponse };
 
 type RequestStartMessage = { request: IncomingMessage };
+
+const STATIC_ASSET_REGEX = new RegExp(`\\.(?:${STATIC_ASSET_EXTENSIONS})(?:\\?|$)`, "i");
+
+const LOG_RESPONSE_KEY = Symbol.for("@redirection.io/vercel-middleware/instrumentation");
+const SOCKET_ADDRESSES_KEY = Symbol.for("@redirection.io/vercel-middleware/socket-addresses");
+
+type InstrumentationGlobal = typeof globalThis & {
+    [LOG_RESPONSE_KEY]?: (message: ResponseFinishMessage) => Promise<void>;
+    [SOCKET_ADDRESSES_KEY]?: WeakMap<IncomingMessage, string | undefined>;
+};
+
+function getSocketAddresses() {
+    const instrumentationGlobal = globalThis as InstrumentationGlobal;
+
+    instrumentationGlobal[SOCKET_ADDRESSES_KEY] ??= new WeakMap();
+
+    return instrumentationGlobal[SOCKET_ADDRESSES_KEY];
+}
 
 type RegisterInstrumentationConfig = {
     matcherRegex?: string | null;
@@ -41,14 +61,7 @@ export const registerRedirectionIoInstrumentation = async ({ matcherRegex }: Reg
 
         await redirectionio.init();
 
-        const diagnostics = require("diagnostics_channel");
-        const channel = diagnostics.channel("http.server.response.finish");
-        const socketAddresses = new WeakMap<IncomingMessage, string | undefined>();
-
-        // The socket address is no longer readable once the connection is closed
-        diagnostics.channel("http.server.request.start").subscribe(({ request }: RequestStartMessage) => {
-            socketAddresses.set(request, request.socket.remoteAddress);
-        });
+        const diagnostics = loadDiagnosticsChannel();
 
         const logResponse = async ({ request, response }: ResponseFinishMessage) => {
             const nextInternalMeta = Symbol.for("NextInternalRequestMeta");
@@ -62,7 +75,7 @@ export const registerRedirectionIoInstrumentation = async ({ matcherRegex }: Reg
                 requestUrl.startsWith("/_next/") ||
                 requestUrl.startsWith("/_vercel/") ||
                 requestUrl.includes("/__nextjs") ||
-                /\.(js|css|png|jpg|jpeg|gif|svg|ico|woff|woff2|ttf|map|json)(\?|$)/i.test(requestUrl) ||
+                STATIC_ASSET_REGEX.test(requestUrl) ||
                 !isPathMatched(new URL(requestUrl, "http://localhost").pathname, matcherRegex)
             ) {
                 return; // Skip logging
@@ -92,9 +105,7 @@ export const registerRedirectionIoInstrumentation = async ({ matcherRegex }: Reg
 
             const statusCode = response.statusCode;
 
-            const url = stripNextRscSearchParam(
-                new URL(requestUrl, `${request.headers["x-forwarded-proto"]}://${request.headers.host}`),
-            );
+            const url = stripNextRscSearchParam(new URL(requestUrl, getRequestOrigin(request)));
 
             // Route params added by Vercel to the query of dynamic routes (e.g. ?nxtPslug=value)
             Array.from(url.searchParams.keys())
@@ -113,7 +124,7 @@ export const registerRedirectionIoInstrumentation = async ({ matcherRegex }: Reg
             const startTimestamp = forwardedData?.startTimestamp ?? now;
             const actionStr = forwardedData?.action ?? "";
 
-            const ip = getClientIp(request, socketAddresses.get(request));
+            const ip = getClientIp(request, getSocketAddresses().get(request));
 
             const logUrl = forwarded?.publicUrl ?? url;
             const redirectionIORequest = createRedirectionIORequest({
@@ -154,8 +165,39 @@ export const registerRedirectionIoInstrumentation = async ({ matcherRegex }: Reg
             });
         };
 
-        channel.subscribe((message: ResponseFinishMessage) => {
-            waitUntil(logResponse(message).catch((err) => console.error(err)));
+        const instrumentationGlobal = globalThis as InstrumentationGlobal;
+        const isSubscribed = instrumentationGlobal[LOG_RESPONSE_KEY] !== undefined;
+
+        // Keep a single subscription across HMR reloads and repeated calls, with the latest config
+        instrumentationGlobal[LOG_RESPONSE_KEY] = logResponse;
+
+        if (isSubscribed) {
+            return;
+        }
+
+        // The socket address is no longer readable once the connection is closed
+        diagnostics.channel("http.server.request.start").subscribe((message) => {
+            const { request } = message as RequestStartMessage;
+
+            getSocketAddresses().set(request, request.socket.remoteAddress);
+        });
+
+        diagnostics.channel("http.server.response.finish").subscribe((message) => {
+            try {
+                const logLatestResponse = instrumentationGlobal[LOG_RESPONSE_KEY];
+
+                if (!logLatestResponse) {
+                    return;
+                }
+
+                waitUntil(
+                    logLatestResponse(message as ResponseFinishMessage).catch((error) =>
+                        console.error("redirection.io: unable to log the request.", error),
+                    ),
+                );
+            } catch (error) {
+                console.error("redirection.io: unable to log the request.", error);
+            }
         });
     }
 };
@@ -169,6 +211,27 @@ function getClientIp(request: IncomingMessage, socketAddress: string | undefined
     const vercelIp = request.headers["x-real-ip"];
 
     return typeof vercelIp === "string" ? vercelIp : undefined;
+}
+
+// Bundlers provide require(), while a static or dynamic import makes Next.js warn when it bundles the Edge instrumentation
+function loadDiagnosticsChannel(): typeof import("node:diagnostics_channel") {
+    return typeof require === "function"
+        ? require("node:diagnostics_channel")
+        : globalThis.process.getBuiltinModule("node:diagnostics_channel");
+}
+
+function getRequestOrigin(request: IncomingMessage) {
+    const firstValue = (value: string | string[] | undefined) =>
+        (Array.isArray(value) ? value[0] : value)?.split(",")[0].trim();
+    const forwardedProto = firstValue(request.headers["x-forwarded-proto"]);
+    const protocol =
+        forwardedProto === "http" || forwardedProto === "https"
+            ? forwardedProto
+            : (request.socket as TLSSocket).encrypted
+              ? "https"
+              : "http";
+
+    return `${protocol}://${firstValue(request.headers.host) || "localhost"}`;
 }
 
 function isNextPrefetchRequest(request: IncomingMessage) {

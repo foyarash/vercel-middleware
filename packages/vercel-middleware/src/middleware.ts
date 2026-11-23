@@ -3,6 +3,7 @@ import { next, RequestContext } from "@vercel/edge";
 import { ipAddress, waitUntil } from "@vercel/functions";
 import {
     createRedirectionIORequest,
+    fetchRedirectionIOAction,
     logRequest,
     ForwardedMiddlewareData,
     ForwardedRequest,
@@ -24,15 +25,7 @@ import { getEnv } from "./env";
 import { getStaticResponseStatus } from "./routes";
 import { Middleware } from "./types";
 
-const {
-    IS_VERCEL,
-    REDIRECTIONIO_TOKEN,
-    REDIRECTIONIO_INSTANCE_NAME,
-    REDIRECTIONIO_VERSION,
-    REDIRECTIONIO_ADD_HEADER_RULE_IDS,
-    REDIRECTIONIO_DEBUG_HEADERS,
-    REDIRECTIONIO_TIMEOUT,
-} = getEnv();
+const { IS_VERCEL, REDIRECTIONIO_TOKEN, REDIRECTIONIO_ADD_HEADER_RULE_IDS, REDIRECTIONIO_DEBUG_HEADERS } = getEnv();
 
 type FetchResponse = (request: Request, useFetch: boolean) => Promise<Response>;
 
@@ -60,26 +53,21 @@ export const createRedirectionIoMiddleware = <R extends Request = Request, C ext
             return next();
         }
 
-        const body = request.body ? await request.arrayBuffer() : null;
         const publicUrl = new URL(request.url);
 
-        let middlewareRequest = new Request(request.url, {
-            method: request.method,
-            headers: request.headers,
-            body,
-        });
+        let middlewareRequest = copyRequest(request, request.url);
 
         let previousResponse: Response | null = null;
         let hasCalledBackend = false;
 
         if (config.previousMiddleware) {
-            previousResponse = await config.previousMiddleware(middlewareRequest as R, context);
+            previousResponse = await config.previousMiddleware(middlewareRequest.clone() as R, context);
 
             if (previousResponse.status !== 200) {
                 return previousResponse;
             }
 
-            middlewareRequest = middlewareResponseToRequest(middlewareRequest, previousResponse, body);
+            middlewareRequest = middlewareResponseToRequest(middlewareRequest, previousResponse);
         }
 
         const response = await handler(
@@ -93,13 +81,13 @@ export const createRedirectionIoMiddleware = <R extends Request = Request, C ext
                 hasCalledBackend = true;
 
                 if (config.nextMiddleware) {
-                    response = await config.nextMiddleware(request as R, context);
+                    response = await config.nextMiddleware(request.clone() as R, context);
 
                     if (response.status !== 200) {
                         return mergeMiddlewareResponses(response, [previousResponse], false);
                     }
 
-                    request = middlewareResponseToRequest(request, response, body);
+                    request = middlewareResponseToRequest(request, response);
                 }
 
                 if (!useFetch || getNextRequestKind(request) !== "document") {
@@ -287,72 +275,6 @@ async function forwardDataToBackend(
     response.headers.set("x-middleware-override-headers", Array.from(overriddenHeaders).join(","));
 }
 
-function splitSetCookies(cookiesString: string) {
-    const cookiesStrings = [];
-    let pos = 0;
-    let start;
-    let ch;
-    let lastComma;
-    let nextStart;
-    let cookiesSeparatorFound;
-
-    function skipWhitespace() {
-        while (pos < cookiesString.length && /\s/.test(cookiesString.charAt(pos))) {
-            pos += 1;
-        }
-        return pos < cookiesString.length;
-    }
-
-    function notSpecialChar() {
-        ch = cookiesString.charAt(pos);
-
-        return ch !== "=" && ch !== ";" && ch !== ",";
-    }
-
-    while (pos < cookiesString.length) {
-        start = pos;
-        cookiesSeparatorFound = false;
-
-        while (skipWhitespace()) {
-            ch = cookiesString.charAt(pos);
-            if (ch === ",") {
-                // ',' is a cookie separator if we have later first '=', not ';' or ','
-                lastComma = pos;
-                pos += 1;
-
-                skipWhitespace();
-                nextStart = pos;
-
-                while (pos < cookiesString.length && notSpecialChar()) {
-                    pos += 1;
-                }
-
-                // currently special character
-                if (pos < cookiesString.length && cookiesString.charAt(pos) === "=") {
-                    // we found cookies separator
-                    cookiesSeparatorFound = true;
-                    // pos is inside the next cookie, so back up and return it.
-                    pos = nextStart;
-                    cookiesStrings.push(cookiesString.substring(start, lastComma));
-                    start = pos;
-                } else {
-                    // in param ',' or param separator ';',
-                    // we continue from that comma
-                    pos = lastComma + 1;
-                }
-            } else {
-                pos += 1;
-            }
-        }
-
-        if (!cookiesSeparatorFound || pos >= cookiesString.length) {
-            cookiesStrings.push(cookiesString.substring(start, cookiesString.length));
-        }
-    }
-
-    return cookiesStrings;
-}
-
 function mergeMiddlewareResponses(
     target: Response,
     middlewareResponses: Array<Response | null>,
@@ -390,18 +312,26 @@ function mergeMiddlewareResponses(
     return target;
 }
 
-function middlewareResponseToRequest(originalRequest: Request, response: Response, body: ArrayBuffer | null): Request {
+// The body stream moves to the copy: it is only read if the request is proxified, never buffered by the middleware
+function copyRequest(request: Request, url: string): Request {
+    const init: RequestInit & { duplex: "half" } = {
+        method: request.method,
+        headers: request.headers,
+        body: request.body,
+        duplex: "half",
+    };
+
+    return new Request(url, init);
+}
+
+function middlewareResponseToRequest(originalRequest: Request, response: Response): Request {
     let request = originalRequest;
 
     if (response.headers.has("x-middleware-rewrite")) {
         const newUrl = response.headers.get("x-middleware-rewrite");
 
         if (newUrl) {
-            request = new Request(newUrl, {
-                method: request.method,
-                headers: request.headers,
-                body,
-            });
+            request = copyRequest(request, newUrl);
         }
     }
 
@@ -419,9 +349,7 @@ function middlewareResponseToRequest(originalRequest: Request, response: Respons
         }
     }
 
-    const middlewareCookies = response.headers.get("x-middleware-set-cookie");
-
-    if (middlewareCookies) {
+    if (response.headers.has("x-middleware-set-cookie")) {
         const cookies = new Map(
             (request.headers.get("cookie") ?? "")
                 .split(";")
@@ -430,7 +358,7 @@ function middlewareResponseToRequest(originalRequest: Request, response: Respons
                 .map((cookie) => [cookie.split("=")[0], cookie]),
         );
 
-        splitSetCookies(middlewareCookies).forEach((setCookie) => {
+        response.headers.getSetCookie().forEach((setCookie) => {
             const cookie = setCookie.split(";")[0].trim();
             cookies.set(cookie.split("=")[0], cookie);
         });
@@ -439,35 +367,6 @@ function middlewareResponseToRequest(originalRequest: Request, response: Respons
     }
 
     return request;
-}
-
-async function fetchRedirectionIOAction(redirectionIORequest: redirectionio.Request) {
-    try {
-        const response = (await Promise.race([
-            fetch("https://agent.redirection.io/" + REDIRECTIONIO_TOKEN + "/action", {
-                method: "POST",
-                body: redirectionIORequest.serialize().toString(),
-                headers: {
-                    "User-Agent": "vercel-edge-middleware/" + REDIRECTIONIO_VERSION,
-                    "x-redirectionio-instance-name": REDIRECTIONIO_INSTANCE_NAME,
-                },
-                cache: "no-store",
-            }),
-            new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout")), REDIRECTIONIO_TIMEOUT)),
-        ])) as Response;
-
-        const actionStr = await response.text();
-
-        if (actionStr === "") {
-            return redirectionio.Action.empty();
-        }
-
-        return new redirectionio.Action(actionStr);
-    } catch (e) {
-        console.error(e);
-
-        return redirectionio.Action.empty();
-    }
 }
 
 /* Redirection.io logic */
@@ -501,16 +400,12 @@ async function proxy(
         const headerMap = new redirectionio.HeaderMap();
 
         response.headers.forEach((value, key) => {
-            if (key === "set-cookie") {
-                const cookies = splitSetCookies(value);
-
-                for (const cookie of cookies) {
-                    headerMap.add_header("set-cookie", cookie);
-                }
-            } else {
+            if (key !== "set-cookie") {
                 headerMap.add_header(key, value);
             }
         });
+
+        response.headers.getSetCookie().forEach((cookie) => headerMap.add_header("set-cookie", cookie));
 
         request.headers.forEach((value, key) => {
             if (includedRequestHeadersInResponse?.includes(key)) {

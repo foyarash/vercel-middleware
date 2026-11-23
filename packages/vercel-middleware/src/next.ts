@@ -37,28 +37,30 @@ const getNextConfig = (request: NextRequest): NextConfig => {
     return { basePath: request.nextUrl.basePath };
 };
 
-const withNextConfig = (middleware: NextMiddleware | undefined, nextConfig: NextConfig) => {
-    if (!middleware) {
-        return undefined;
-    }
-
-    return (req: Request, evt?: NextFetchEvent) => middleware(new NextRequest(req, { nextConfig }), evt);
-};
-
 export const createRedirectionIoMiddleware = (config: CreateMiddlewareConfig): NextMiddleware => {
+    // The Next.js config is the same for every request, it is read from the first one
+    let nextConfig: NextConfig | undefined;
+
+    const withNextConfig = (middleware: NextMiddleware | undefined) => {
+        if (!middleware) {
+            return undefined;
+        }
+
+        return (req: Request, evt?: NextFetchEvent) => middleware(new NextRequest(req, { nextConfig }), evt);
+    };
+
+    const edgeMiddleware = createEdgeMiddleware<NextRequest, NextFetchEvent>({
+        previousMiddleware: withNextConfig(config.previousMiddleware),
+        nextMiddleware: withNextConfig(config.nextMiddleware),
+        matcherRegex: config.matcherRegex,
+        logged: config.logged ?? true,
+        // By default, handle next intl headers
+        includedRequestHeadersInResponse: ["x-next-intl-locale", ...(config.includedRequestHeadersInResponse ?? [])],
+    });
+
     return async (req: NextRequest, evt?: NextFetchEvent) => {
-        const nextConfig = getNextConfig(req);
-        const edgeMiddleware = createEdgeMiddleware<NextRequest, NextFetchEvent>({
-            previousMiddleware: withNextConfig(config.previousMiddleware, nextConfig),
-            nextMiddleware: withNextConfig(config.nextMiddleware, nextConfig),
-            matcherRegex: config.matcherRegex,
-            logged: config.logged ?? true,
-            // By default, handle next intl headers
-            includedRequestHeadersInResponse: [
-                "x-next-intl-locale",
-                ...(config.includedRequestHeadersInResponse ?? []),
-            ],
-        });
+        nextConfig ??= getNextConfig(req);
+
         const response = await edgeMiddleware(req, evt);
 
         return new NextResponse(response.body, response);
