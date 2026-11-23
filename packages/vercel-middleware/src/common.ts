@@ -146,7 +146,7 @@ function fetchAgent(endpoint: "action" | "log", body: string, timeout: number) {
         method: "POST",
         body,
         headers: {
-            "User-Agent": "vercel-edge-middleware/" + REDIRECTIONIO_VERSION,
+            "User-Agent": REDIRECTIONIO_VERSION,
             "x-redirectionio-instance-name": REDIRECTIONIO_INSTANCE_NAME,
         },
         cache: "no-store",
@@ -230,7 +230,7 @@ export async function logRequest({
             statusCode,
             responseHeaderMap,
             action,
-            "vercel-edge-middleware/" + REDIRECTIONIO_VERSION,
+            REDIRECTIONIO_VERSION,
             BigInt(startTimestamp),
             BigInt(actionMatchTime),
             BigInt(proxyResponseTime),

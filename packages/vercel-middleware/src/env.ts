@@ -1,5 +1,7 @@
 import * as z from "zod/mini";
 
+declare const __REDIRECTIONIO_VERSION__: string;
+
 const HEADER_NAME_REGEX = /^[!#$%&'*+.^_`|~0-9a-z-]+$/;
 
 const booleanSchema = z.stringbool({ truthy: ["true"], falsy: ["false"] });
@@ -42,7 +44,7 @@ function readEnv() {
         IS_VERCEL: process.env.VERCEL === "1",
         REDIRECTIONIO_TOKEN: process.env.REDIRECTIONIO_TOKEN || "",
         REDIRECTIONIO_INSTANCE_NAME: process.env.REDIRECTIONIO_INSTANCE_NAME || "redirection-io-vercel-middleware",
-        REDIRECTIONIO_VERSION: "redirection-io-vercel-middleware/0.5.2",
+        REDIRECTIONIO_VERSION: "redirection-io-vercel-middleware/" + __REDIRECTIONIO_VERSION__,
         REDIRECTIONIO_ADD_HEADER_RULE_IDS: readVariable(
             "REDIRECTIONIO_ADD_HEADER_RULE_IDS",
             process.env.REDIRECTIONIO_ADD_HEADER_RULE_IDS,
