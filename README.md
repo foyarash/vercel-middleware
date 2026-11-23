@@ -207,14 +207,14 @@ By default, Next.js removes the RSC headers (`RSC`, `Next-Router-Prefetch`, `Nex
 
 ### Webpack
 
-If you are using Webpack in your Next.js application, you will need to add the following in your Next config :
+If you are using Webpack in your Next.js application (the default bundler before Next.js 16), you will need to add the following in your Next config :
 
 ```typescript
 import { redirectionIoWebpackWasmRule } from "@redirection.io/vercel-middleware/webpack";
 
 const nextConfig: NextConfig = {
-  webpack: (config, { isServer }) => {
-    if (isServer) {
+  webpack: (config, { nextRuntime }) => {
+    if (nextRuntime === "nodejs") {
       config.module.rules.push(redirectionIoWebpackWasmRule);
     }
 
@@ -222,6 +222,26 @@ const nextConfig: NextConfig = {
   },
 };
 ```
+
+The rule only applies to the Node.js runtime: Next.js already loads the WebAssembly module of an Edge middleware, and
+adding the rule there makes it fail with `WebAssembly.compile(): expected magic word`.
+
+### Next.js 14 and 15
+
+The library supports Next.js 14 and later. Before Next.js 16, the middleware is a `middleware.ts` file and runs on the
+Edge runtime by default. Next.js 14 also needs the instrumentation hook to be enabled in `next.config.mjs`
+(`next.config.ts` is not supported before Next.js 15):
+
+```javascript
+const nextConfig = {
+  experimental: {
+    instrumentationHook: true,
+  },
+};
+```
+
+On the Edge runtime, the Next.js build manifests cannot be read (see [Logging](#logging)), so static pages served from
+the CDN cache are not logged. The `apps/example-next14` and `apps/example-next15` folders contain working examples.
 
 ### Development
 
