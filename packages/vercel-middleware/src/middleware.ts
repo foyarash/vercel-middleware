@@ -52,26 +52,21 @@ export const createRedirectionIoMiddleware = <R extends Request = Request, C ext
             return next();
         }
 
-        const body = request.body ? await request.arrayBuffer() : null;
         const publicUrl = new URL(request.url);
 
-        let middlewareRequest = new Request(request.url, {
-            method: request.method,
-            headers: request.headers,
-            body,
-        });
+        let middlewareRequest = copyRequest(request, request.url);
 
         let previousResponse: Response | null = null;
         let hasCalledBackend = false;
 
         if (config.previousMiddleware) {
-            previousResponse = await config.previousMiddleware(middlewareRequest as R, context);
+            previousResponse = await config.previousMiddleware(middlewareRequest.clone() as R, context);
 
             if (previousResponse.status !== 200) {
                 return previousResponse;
             }
 
-            middlewareRequest = middlewareResponseToRequest(middlewareRequest, previousResponse, body);
+            middlewareRequest = middlewareResponseToRequest(middlewareRequest, previousResponse);
         }
 
         const response = await handler(
@@ -85,13 +80,13 @@ export const createRedirectionIoMiddleware = <R extends Request = Request, C ext
                 hasCalledBackend = true;
 
                 if (config.nextMiddleware) {
-                    response = await config.nextMiddleware(request as R, context);
+                    response = await config.nextMiddleware(request.clone() as R, context);
 
                     if (response.status !== 200) {
                         return mergeMiddlewareResponses(response, [previousResponse], false);
                     }
 
-                    request = middlewareResponseToRequest(request, response, body);
+                    request = middlewareResponseToRequest(request, response);
                 }
 
                 if (!useFetch || getNextRequestKind(request) !== "document") {
@@ -381,18 +376,26 @@ function mergeMiddlewareResponses(
     return target;
 }
 
-function middlewareResponseToRequest(originalRequest: Request, response: Response, body: ArrayBuffer | null): Request {
+// The body stream moves to the copy: it is only read if the request is proxified, never buffered by the middleware
+function copyRequest(request: Request, url: string): Request {
+    const init: RequestInit & { duplex: "half" } = {
+        method: request.method,
+        headers: request.headers,
+        body: request.body,
+        duplex: "half",
+    };
+
+    return new Request(url, init);
+}
+
+function middlewareResponseToRequest(originalRequest: Request, response: Response): Request {
     let request = originalRequest;
 
     if (response.headers.has("x-middleware-rewrite")) {
         const newUrl = response.headers.get("x-middleware-rewrite");
 
         if (newUrl) {
-            request = new Request(newUrl, {
-                method: request.method,
-                headers: request.headers,
-                body,
-            });
+            request = copyRequest(request, newUrl);
         }
     }
 

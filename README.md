@@ -95,6 +95,9 @@ prevents a loop. The client IP (`x-forwarded-for`, `x-real-ip`) is kept, and wit
 client credentials (`_vercel_jwt` cookie, `x-vercel-protection-bypass` header) are reused, so a visitor allowed to see
 a protected preview also gets the proxified page; no bypass secret is added by the middleware.
 
+The request body is never buffered by the middleware: it is streamed to the deployment only when the request is
+proxified, and is otherwise left to Next.js (uploads are not read by the middleware).
+
 Then, deploy your project to Vercel.
 
 ```bash
