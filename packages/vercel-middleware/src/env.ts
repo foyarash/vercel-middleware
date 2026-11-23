@@ -14,7 +14,10 @@ export const getEnv = () => {
         .map((name) => name.trim().toLowerCase())
         .filter(Boolean);
 
+    const IS_VERCEL = process.env.VERCEL === "1";
+
     return {
+        IS_VERCEL,
         REDIRECTIONIO_TOKEN,
         REDIRECTIONIO_INSTANCE_NAME,
         REDIRECTIONIO_VERSION,

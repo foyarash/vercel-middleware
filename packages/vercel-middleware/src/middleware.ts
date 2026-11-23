@@ -25,6 +25,7 @@ import { getStaticResponseStatus } from "./routes";
 import { Middleware } from "./types";
 
 const {
+    IS_VERCEL,
     REDIRECTIONIO_TOKEN,
     REDIRECTIONIO_INSTANCE_NAME,
     REDIRECTIONIO_VERSION,
@@ -170,7 +171,7 @@ async function handler(
 
     await redirectionio.init();
 
-    const ip = ipAddress(request);
+    const ip = IS_VERCEL ? ipAddress(request) : undefined;
     const url = stripNextRscSearchParam(new URL(publicUrl));
     const redirectionIORequest = createRedirectionIORequest({
         url,

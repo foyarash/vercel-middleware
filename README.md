@@ -90,6 +90,11 @@ the instrumentation only, so pages served from the CDN cache are not logged. Wit
 only prerendered pages are logged by the middleware. ISR pages with a dynamic segment that are not prerendered yet are
 logged with a `200` status.
 
+The client IP sent with the logs (and to the agent) only comes from a trusted source: on Vercel (`VERCEL=1`), the
+`x-real-ip` header set by the platform, which overrides the one sent by the client; elsewhere, the socket address seen
+by the instrumentation, and no IP from the middleware, which cannot read it (`x-real-ip` and `x-forwarded-for` can
+be forged by the client when no proxy overrides them).
+
 The instrumentation ignores the Vercel internal requests (`/_vercel/*`, ISR renders requested by the Vercel cache) and
 the invocation of a Node.js middleware, which runs in its own function on Vercel. With `logged: false`, neither the
 middleware nor the instrumentation logs the requests handled by the middleware.

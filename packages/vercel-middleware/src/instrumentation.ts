@@ -21,9 +21,11 @@ import {
     stripNextRscSearchParam,
     verifyForwardedData,
 } from "./common";
-const { REDIRECTIONIO_TOKEN } = getEnv();
+const { IS_VERCEL, REDIRECTIONIO_TOKEN } = getEnv();
 
 type ResponseFinishMessage = { request: IncomingMessage; response: ServerResponse };
+
+type RequestStartMessage = { request: IncomingMessage };
 
 type RegisterInstrumentationConfig = {
     matcherRegex?: string | null;
@@ -41,6 +43,12 @@ export const registerRedirectionIoInstrumentation = async ({ matcherRegex }: Reg
 
         const diagnostics = require("diagnostics_channel");
         const channel = diagnostics.channel("http.server.response.finish");
+        const socketAddresses = new WeakMap<IncomingMessage, string | undefined>();
+
+        // The socket address is no longer readable once the connection is closed
+        diagnostics.channel("http.server.request.start").subscribe(({ request }: RequestStartMessage) => {
+            socketAddresses.set(request, request.socket.remoteAddress);
+        });
 
         const logResponse = async ({ request, response }: ResponseFinishMessage) => {
             const nextInternalMeta = Symbol.for("NextInternalRequestMeta");
@@ -105,7 +113,7 @@ export const registerRedirectionIoInstrumentation = async ({ matcherRegex }: Reg
             const startTimestamp = forwardedData?.startTimestamp ?? now;
             const actionStr = forwardedData?.action ?? "";
 
-            const ip = (request.headers["x-real-ip"] as string) || request.socket.remoteAddress;
+            const ip = getClientIp(request, socketAddresses.get(request));
 
             const redirectionIORequest = createRedirectionIORequest({
                 url: forwarded?.publicUrl ?? url,
@@ -148,6 +156,17 @@ export const registerRedirectionIoInstrumentation = async ({ matcherRegex }: Reg
         });
     }
 };
+
+// Only the IP set by the Vercel platform can be trusted, any other header may be sent by the client
+function getClientIp(request: IncomingMessage, socketAddress: string | undefined) {
+    if (!IS_VERCEL) {
+        return socketAddress ?? request.socket.remoteAddress;
+    }
+
+    const vercelIp = request.headers["x-real-ip"];
+
+    return typeof vercelIp === "string" ? vercelIp : undefined;
+}
 
 function isNextPrefetchRequest(request: IncomingMessage) {
     return Boolean(request.headers["next-router-prefetch"] || request.headers["next-router-segment-prefetch"]);
