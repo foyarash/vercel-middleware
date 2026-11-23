@@ -17,6 +17,7 @@
             "dependsOn": ["^lint"]
         },
         "format": {},
+        "format:check": {},
         "types": {
             "dependsOn": ["^types"]
         },

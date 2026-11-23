@@ -42,7 +42,7 @@ Then create a `instrumentation.ts` file in the same folder as the `proxy.ts` fil
 import { registerRedirectionIoInstrumentation } from "@redirection.io/vercel-middleware/instrumentation";
 
 export const register = async () => {
-  registerRedirectionIoInstrumentation();
+    registerRedirectionIoInstrumentation();
 };
 ```
 
@@ -67,14 +67,14 @@ the background with `waitUntil`.
 
 On Vercel (`VERCEL=1`):
 
--   when the middleware produces the final response itself (redirection, custom status such as a `410`, or a response
-    proxified to apply headers or body filters), the middleware sends the log;
--   when the middleware lets the request through (`next()` or a rewrite) to a page that Next.js serves without running a
-    function (static page, ISR page, or the static 404 page for an unknown URL), the middleware sends the log with the
-    status of that page: these pages are served from the Vercel CDN cache and never reach the instrumentation;
--   when the middleware lets the request through to a dynamic route (server-rendered page, route handler), the
-    instrumentation sends the log once the function answered, with its real status code (for example a `404` returned
-    by `notFound()`).
+- when the middleware produces the final response itself (redirection, custom status such as a `410`, or a response
+  proxified to apply headers or body filters), the middleware sends the log;
+- when the middleware lets the request through (`next()` or a rewrite) to a page that Next.js serves without running a
+  function (static page, ISR page, or the static 404 page for an unknown URL), the middleware sends the log with the
+  status of that page: these pages are served from the Vercel CDN cache and never reach the instrumentation;
+- when the middleware lets the request through to a dynamic route (server-rendered page, route handler), the
+  instrumentation sends the log once the function answered, with its real status code (for example a `404` returned
+  by `notFound()`).
 
 Elsewhere (`next start`, self-hosting), every response goes through the Next.js server, so the instrumentation sends
 all the logs, with the real status code and the socket address as client IP, and the middleware never logs.
@@ -129,14 +129,14 @@ vercel deploy
 
 ### Environment variables
 
-| Variable                                    | Value                                   | Default                            |
-| ------------------------------------------- | --------------------------------------- | ---------------------------------- |
-| `REDIRECTIONIO_TOKEN`                       | Token of your redirection.io instance   | (required)                         |
-| `REDIRECTIONIO_INSTANCE_NAME`               | Name of the instance shown in the logs  | `redirection-io-vercel-middleware` |
-| `REDIRECTIONIO_TIMEOUT`                     | Positive integer, in milliseconds       | `500`                              |
-| `REDIRECTIONIO_DEBUG_HEADERS`               | `true` or `false`                       | `false`                            |
-| `REDIRECTIONIO_ADD_HEADER_RULE_IDS`         | `true` or `false`                       | `false`                            |
-| `REDIRECTIONIO_FORWARDED_SENSITIVE_HEADERS` | Comma-separated list of header names    | (empty)                            |
+| Variable                                    | Value                                  | Default                            |
+| ------------------------------------------- | -------------------------------------- | ---------------------------------- |
+| `REDIRECTIONIO_TOKEN`                       | Token of your redirection.io instance  | (required)                         |
+| `REDIRECTIONIO_INSTANCE_NAME`               | Name of the instance shown in the logs | `redirection-io-vercel-middleware` |
+| `REDIRECTIONIO_TIMEOUT`                     | Positive integer, in milliseconds      | `500`                              |
+| `REDIRECTIONIO_DEBUG_HEADERS`               | `true` or `false`                      | `false`                            |
+| `REDIRECTIONIO_ADD_HEADER_RULE_IDS`         | `true` or `false`                      | `false`                            |
+| `REDIRECTIONIO_FORWARDED_SENSITIVE_HEADERS` | Comma-separated list of header names   | (empty)                            |
 
 An invalid value does not break your application: a warning is logged in the console and the default value is used.
 
@@ -195,12 +195,12 @@ export default middleware;
 
 By default, our middleware ignores certain routes even if there's an exported configuration. The ignored routes are:
 
--   `/api/*` routes
--   `/_next/*` (Next.js internals) and `/_vercel*` (Vercel internals)
--   `/_static/*`
--   static assets at any level, by extension: scripts and styles (`.js`, `.mjs`, `.css`, `.map`, `.json`), images
-    (`.png`, `.jpg`, `.jpeg`, `.gif`, `.svg`, `.ico`, `.webp`, `.avif`, `.bmp`), fonts (`.woff`, `.woff2`, `.ttf`,
-    `.otf`, `.eot`), `.webmanifest` and media (`.mp4`, `.webm`, `.mp3`)
+- `/api/*` routes
+- `/_next/*` (Next.js internals) and `/_vercel*` (Vercel internals)
+- `/_static/*`
+- static assets at any level, by extension: scripts and styles (`.js`, `.mjs`, `.css`, `.map`, `.json`), images
+  (`.png`, `.jpg`, `.jpeg`, `.gif`, `.svg`, `.ico`, `.webp`, `.avif`, `.bmp`), fonts (`.woff`, `.woff2`, `.ttf`,
+  `.otf`, `.eot`), `.webmanifest` and media (`.mp4`, `.webm`, `.mp3`)
 
 Other URLs with an extension are handled, so that legacy URLs can be redirected (`/old-page.html`, `/blog/post.php`,
 `/page.aspx`, `/document.pdf`, `/robots.txt`, `/sitemap.xml`…). The default regex is:
@@ -219,12 +219,12 @@ createRedirectionIoMiddleware({ matcherRegex: null });
 
 Here's a summary of the middleware options:
 
-| Option               | Type              | Description                                                                                              |
-| -------------------- | ----------------- | -------------------------------------------------------------------------------------------------------- |
-| `previousMiddleware` | Function          | Middleware to be executed before redirection.io middleware                                               |
-| `nextMiddleware`     | Function          | Middleware to be executed after redirection.io middleware                                                |
-| `matcherRegex`       | String or null    | Regex to specify which routes should be handled by redirection.io middleware                             |
-| `logged`             | Boolean           | Whether the requests handled by the middleware are logged in redirection.io (default: `true`)            |
+| Option               | Type           | Description                                                                                   |
+| -------------------- | -------------- | --------------------------------------------------------------------------------------------- |
+| `previousMiddleware` | Function       | Middleware to be executed before redirection.io middleware                                    |
+| `nextMiddleware`     | Function       | Middleware to be executed after redirection.io middleware                                     |
+| `matcherRegex`       | String or null | Regex to specify which routes should be handled by redirection.io middleware                  |
+| `logged`             | Boolean        | Whether the requests handled by the middleware are logged in redirection.io (default: `true`) |
 
 When chaining middlewares, redirection.io rules are always matched against the public URL of the request, even if
 `previousMiddleware` rewrites it. The final response keeps what the chained middlewares set: the rewrite
@@ -270,13 +270,13 @@ If you are using Webpack in your Next.js application (the default bundler before
 import { redirectionIoWebpackWasmRule } from "@redirection.io/vercel-middleware/webpack";
 
 const nextConfig: NextConfig = {
-  webpack: (config, { nextRuntime }) => {
-    if (nextRuntime === "nodejs") {
-      config.module.rules.push(redirectionIoWebpackWasmRule);
-    }
+    webpack: (config, { nextRuntime }) => {
+        if (nextRuntime === "nodejs") {
+            config.module.rules.push(redirectionIoWebpackWasmRule);
+        }
 
-    return config;
-  },
+        return config;
+    },
 };
 ```
 
@@ -291,9 +291,9 @@ Edge runtime by default. Next.js 14 also needs the instrumentation hook to be en
 
 ```javascript
 const nextConfig = {
-  experimental: {
-    instrumentationHook: true,
-  },
+    experimental: {
+        instrumentationHook: true,
+    },
 };
 ```
 

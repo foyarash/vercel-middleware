@@ -1,4 +1,4 @@
 {
-  "compilerOptions": {},
-  "exclude": ["node_modules"],
+    "compilerOptions": {},
+    "exclude": ["node_modules"]
 }
