@@ -17,12 +17,16 @@
             "dependsOn": ["^lint"]
         },
         "format": {},
+        "format:check": {},
         "types": {
             "dependsOn": ["^types"]
         },
         "dev": {
             "cache": false,
             "persistent": true
+        },
+        "test": {
+            "dependsOn": ["^build"]
         },
         "test:e2e": {}
     }

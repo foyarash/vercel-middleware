@@ -2,8 +2,8 @@ import type { NextConfig } from "next";
 import { redirectionIoWebpackWasmRule } from "@redirection.io/vercel-middleware/webpack";
 
 const nextConfig: NextConfig = {
-    webpack: (config, { isServer }) => {
-        if (isServer) {
+    webpack: (config, { nextRuntime }) => {
+        if (nextRuntime === "nodejs") {
             config.module.rules.push(redirectionIoWebpackWasmRule);
         }
 

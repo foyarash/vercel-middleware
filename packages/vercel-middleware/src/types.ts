@@ -1,5 +1,8 @@
-import { RequestContext } from "@vercel/edge";
 import { NextFetchEvent, NextRequest } from "next/server";
+
+export type RequestContext = {
+    waitUntil(promise: Promise<unknown>): void;
+};
 
 export type Middleware<R extends Request = Request, C extends RequestContext = RequestContext> = (
     request: R,

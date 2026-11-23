@@ -1,6 +1,7 @@
 import { glob } from "glob";
 import { defineConfig } from "tsup";
 import fs from "fs";
+import packageJson from "./package.json" with { type: "json" };
 
 export default defineConfig({
     entry: glob.sync("src/**/*.{ts,tsx}", {
@@ -20,6 +21,9 @@ export default defineConfig({
         };
     },
     bundle: false,
+    define: {
+        __REDIRECTIONIO_VERSION__: JSON.stringify(packageJson.version),
+    },
     onSuccess: async () => {
         fs.copyFileSync("src/wasm-module-loader.cjs", "dist/wasm-module-loader.cjs");
     },
