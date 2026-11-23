@@ -181,7 +181,8 @@ When chaining middlewares, redirection.io rules are always matched against the p
 `previousMiddleware` rewrites it. The final response keeps what the chained middlewares set: the rewrite
 (`NextResponse.rewrite`), the overridden request headers (`NextResponse.next({ request: { headers } })`), the cookies
 (`response.cookies.set`) and any other response header. A `previousMiddleware` returning a status other than `200`
-(e.g. a redirection) still short-circuits redirection.io.
+(e.g. a redirection) still short-circuits redirection.io. A rewritten request is logged with its public URL, even
+when the query of the rewrite is added to the URL seen by the page (as on Vercel).
 
 ## Next.js
 

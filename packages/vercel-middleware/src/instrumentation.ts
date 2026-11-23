@@ -14,6 +14,7 @@ import {
     REDIRECTIONIO_MATCH_TIME_TIME_HEADER,
     REDIRECTIONIO_MIDDLEWARE_HEADER,
     REDIRECTIONIO_PROXY_RESPONSE_TIME_HEADER,
+    REDIRECTIONIO_REQUEST_URL_HEADER,
     REDIRECTIONIO_SHOULD_LOG_HEADER,
     REDIRECTIONIO_SIGNATURE_HEADER,
     REDIRECTIONIO_START_TIME_HEADER,
@@ -66,8 +67,13 @@ export const registerRedirectionIoInstrumentation = async ({ matcherRegex }: Reg
                 return;
             }
 
-            // On Vercel, a Node.js middleware runs in its own invocation, which must not be logged as the request
-            if (response.getHeaderNames().some((name) => name.startsWith("x-middleware-"))) {
+            // On Vercel, a Node.js middleware runs in its own invocation, which must not be logged as the request.
+            // `next start` only exposes `x-middleware-rewrite` on the response of the rewritten page.
+            if (
+                response
+                    .getHeaderNames()
+                    .some((name) => name.startsWith("x-middleware-") && name !== "x-middleware-rewrite")
+            ) {
                 return;
             }
 
@@ -86,10 +92,8 @@ export const registerRedirectionIoInstrumentation = async ({ matcherRegex }: Reg
             Array.from(url.searchParams.keys())
                 .filter((name) => name.startsWith("nxtP") || name.startsWith("nxtI"))
                 .forEach((name) => url.searchParams.delete(name));
-            const forwardedData = await readForwardedData(request, {
-                method: request.method ?? "",
-                pathAndQuery: url.pathname + url.search,
-            });
+            const forwarded = await readForwardedData(request, url);
+            const forwardedData = forwarded?.data;
 
             if (forwardedData && !forwardedData.shouldLog) {
                 return;
@@ -104,7 +108,7 @@ export const registerRedirectionIoInstrumentation = async ({ matcherRegex }: Reg
             const ip = (request.headers["x-real-ip"] as string) || request.socket.remoteAddress;
 
             const redirectionIORequest = createRedirectionIORequest({
-                url,
+                url: forwarded?.publicUrl ?? url,
                 headers: request.headers,
                 method: request.method!,
                 ip,
@@ -149,10 +153,19 @@ function isNextPrefetchRequest(request: IncomingMessage) {
     return Boolean(request.headers["next-router-prefetch"] || request.headers["next-router-segment-prefetch"]);
 }
 
+// Vercel adds the query of a middleware rewrite to the URL seen by the function
+function isPublicUrlOf(publicUrl: URL, url: URL) {
+    return (
+        publicUrl.origin === url.origin &&
+        publicUrl.pathname === url.pathname &&
+        Array.from(publicUrl.searchParams).every(([name, value]) => url.searchParams.getAll(name).includes(value))
+    );
+}
+
 async function readForwardedData(
     request: IncomingMessage,
-    forwardedRequest: ForwardedRequest,
-): Promise<ForwardedMiddlewareData | null> {
+    url: URL,
+): Promise<{ data: ForwardedMiddlewareData; publicUrl: URL } | null> {
     const headerValue = (name: string) => {
         const value = request.headers[name];
 
@@ -172,8 +185,17 @@ async function readForwardedData(
         shouldLog: headerValue(REDIRECTIONIO_SHOULD_LOG_HEADER) === "1",
     };
 
+    const pathAndQuery = headerValue(REDIRECTIONIO_REQUEST_URL_HEADER) || url.pathname + url.search;
+    const publicUrl = URL.canParse(pathAndQuery, url) ? new URL(pathAndQuery, url) : null;
+
+    if (!publicUrl || !isPublicUrlOf(publicUrl, url)) {
+        return null;
+    }
+
+    const forwardedRequest: ForwardedRequest = { method: request.method ?? "", pathAndQuery };
+
     try {
-        return (await verifyForwardedData(data, forwardedRequest, signature)) ? data : null;
+        return (await verifyForwardedData(data, forwardedRequest, signature)) ? { data, publicUrl } : null;
     } catch (err) {
         console.error(err);
 
