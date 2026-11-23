@@ -18,6 +18,7 @@ import {
     signForwardedData,
 } from "./common";
 import { getEnv } from "./env";
+import { getStaticResponseStatus } from "./routes";
 import { Middleware } from "./types";
 
 const {
@@ -190,7 +191,12 @@ async function handler(
     }
 
     const url = new URL(request.url);
-    const isFinalResponse = !response.headers.has("x-middleware-next") && !response.headers.has("x-middleware-rewrite");
+    const rewriteUrl = response.headers.get("x-middleware-rewrite");
+    const isFinalResponse = !response.headers.has("x-middleware-next") && !rewriteUrl;
+    const staticResponseStatus = isFinalResponse
+        ? undefined
+        : getStaticResponseStatus(request.method, rewriteUrl ?? request.url);
+    const isLoggedByMiddleware = isFinalResponse || staticResponseStatus !== undefined;
 
     await forwardDataToBackend(
         response,
@@ -200,7 +206,7 @@ async function handler(
             startTimestamp,
             actionMatchTime,
             proxyResponseTime,
-            shouldLog: isLogged && !isFinalResponse,
+            shouldLog: isLogged && !isLoggedByMiddleware,
         },
         { method: request.method, pathAndQuery: url.pathname + url.search },
     );
@@ -212,7 +218,7 @@ async function handler(
         response.headers.set("Location", url.origin + location);
     }
 
-    if (isLogged && isFinalResponse) {
+    if (isLogged && isLoggedByMiddleware) {
         const responseHeaders: Array<[string, string]> = [];
 
         response.headers.forEach((value, key) => {
@@ -224,8 +230,8 @@ async function handler(
         runInBackground(
             logRequest({
                 redirectionioRequest: redirectionIORequest,
-                statusCode: response.status,
-                backendStatusCode,
+                statusCode: staticResponseStatus ?? response.status,
+                backendStatusCode: staticResponseStatus ?? backendStatusCode,
                 responseHeaders,
                 action,
                 startTimestamp,

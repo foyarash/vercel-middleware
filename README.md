@@ -55,23 +55,30 @@ the Web Crypto API (`crypto.subtle`, available on Node.js 20+).
 
 ### Logging
 
-Each request handled by redirection.io is logged exactly once:
+Each request handled by redirection.io is logged exactly once, in the background with `waitUntil`:
 
 -   when the middleware produces the final response itself (redirection, custom status such as a `410`, or a response
-    proxified to apply headers or body filters), the middleware sends the log, in the background with `waitUntil`;
--   when the middleware lets the request through (`next()` or a rewrite), the instrumentation sends the log once the
-    backend function answered, with its real status code (for example a `404` page), also with `waitUntil` so that the
-    function is not frozen before the log is sent;
+    proxified to apply headers or body filters), the middleware sends the log;
+-   when the middleware lets the request through (`next()` or a rewrite) to a page that Next.js serves without running a
+    function (static page, ISR page, or the static 404 page for an unknown URL), the middleware sends the log with the
+    status of that page: these pages are served from the Vercel CDN cache and never reach the instrumentation;
+-   when the middleware lets the request through to a dynamic route (server-rendered page, route handler), the
+    instrumentation sends the log once the function answered, with its real status code (for example a `404` returned
+    by `notFound()`);
 -   requests the middleware does not handle (for example `/api/*` routes with the default `matcherRegex`) are logged by
     the instrumentation only.
 
-> **Note:** on Vercel, static and ISR pages served from the CDN cache never reach a function, so they are not logged
-> when the middleware lets them through. Requests answered by the middleware itself are always logged. With
-> `next start`, every request goes through the Node.js server and is logged.
+To tell static pages from dynamic routes, a Node.js middleware (Next.js 16 `proxy.ts`, or `runtime: "nodejs"`) reads
+the Next.js build manifests (`.next/prerender-manifest.json`, `.next/app-path-routes-manifest.json`,
+`.next/server/pages-manifest.json`, `.next/routes-manifest.json`) once, from the working directory. When they cannot
+be read (Edge runtime, custom `distDir`, i18n routing, `beforeFiles` rewrites), the requests let through are logged by
+the instrumentation only, so pages served from the CDN cache are not logged. With other rewrites in `next.config`,
+only prerendered pages are logged by the middleware. ISR pages with a dynamic segment that are not prerendered yet are
+logged with a `200` status.
 
-The instrumentation ignores the Vercel internal requests (`/_vercel/*`) and the invocation of a Node.js middleware
-(Next.js 16 `proxy.ts`), which runs in its own function on Vercel. With `logged: false`, neither the middleware nor the
-instrumentation logs the requests handled by the middleware.
+The instrumentation ignores the Vercel internal requests (`/_vercel/*`, ISR renders requested by the Vercel cache) and
+the invocation of a Node.js middleware, which runs in its own function on Vercel. With `logged: false`, neither the
+middleware nor the instrumentation logs the requests handled by the middleware.
 
 ### Proxified responses
 

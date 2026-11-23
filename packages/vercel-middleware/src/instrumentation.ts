@@ -61,9 +61,19 @@ export const registerRedirectionIoInstrumentation = async () => {
                 return;
             }
 
+            // ISR renders requested by the Vercel cache, without client: the middleware logs the client requests
+            if (request.headers["x-vercel-sc-host"] && !request.headers["x-vercel-forwarded-for"]) {
+                return;
+            }
+
             const statusCode = response.statusCode;
 
             const url = new URL(requestUrl, `${request.headers["x-forwarded-proto"]}://${request.headers.host}`);
+
+            // Route params added by Vercel to the query of dynamic routes (e.g. ?nxtPslug=value)
+            Array.from(url.searchParams.keys())
+                .filter((name) => name.startsWith("nxtP") || name.startsWith("nxtI"))
+                .forEach((name) => url.searchParams.delete(name));
             const forwardedData = await readForwardedData(request, {
                 method: request.method ?? "",
                 pathAndQuery: url.pathname + url.search,
