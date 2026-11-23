@@ -4,10 +4,13 @@ import { IncomingMessage, ServerResponse } from "http";
 import {
     createRedirectionIORequest,
     fetchRedirectionIOAction,
+    ForwardedMiddlewareData,
     REDIRECTIONIO_ACTION_HEADER,
     REDIRECTIONIO_MATCH_TIME_TIME_HEADER,
     REDIRECTIONIO_PROXY_RESPONSE_TIME_HEADER,
+    REDIRECTIONIO_SIGNATURE_HEADER,
     REDIRECTIONIO_START_TIME_HEADER,
+    verifyForwardedData,
 } from "./common";
 const { REDIRECTIONIO_TOKEN, REDIRECTIONIO_INSTANCE_NAME, REDIRECTIONIO_VERSION } = getEnv();
 
@@ -49,10 +52,12 @@ export const registerRedirectionIoInstrumentation = async () => {
 
             const statusCode = response.statusCode;
 
-            const proxyResponseTime = Number(request.headers[REDIRECTIONIO_PROXY_RESPONSE_TIME_HEADER]) || Date.now();
-            const actionMatchTime = Number(request.headers[REDIRECTIONIO_MATCH_TIME_TIME_HEADER]) || Date.now();
-            const startTimestamp = Number(request.headers[REDIRECTIONIO_START_TIME_HEADER]) || Date.now();
-            const actionStr = (request.headers[REDIRECTIONIO_ACTION_HEADER] as string) || "";
+            const forwardedData = await readForwardedData(request);
+            const now = Date.now();
+            const proxyResponseTime = forwardedData?.proxyResponseTime ?? now;
+            const actionMatchTime = forwardedData?.actionMatchTime ?? now;
+            const startTimestamp = forwardedData?.startTimestamp ?? now;
+            const actionStr = forwardedData?.action ?? "";
 
             const ip = (request.headers["x-real-ip"] as string) || request.socket.remoteAddress;
 
@@ -84,6 +89,34 @@ export const registerRedirectionIoInstrumentation = async () => {
         });
     }
 };
+
+async function readForwardedData(request: IncomingMessage): Promise<ForwardedMiddlewareData | null> {
+    const headerValue = (name: string) => {
+        const value = request.headers[name];
+
+        return typeof value === "string" ? value : "";
+    };
+    const signature = headerValue(REDIRECTIONIO_SIGNATURE_HEADER);
+
+    if (!signature) {
+        return null;
+    }
+
+    const data: ForwardedMiddlewareData = {
+        action: headerValue(REDIRECTIONIO_ACTION_HEADER),
+        startTimestamp: Number(headerValue(REDIRECTIONIO_START_TIME_HEADER)),
+        actionMatchTime: Number(headerValue(REDIRECTIONIO_MATCH_TIME_TIME_HEADER)),
+        proxyResponseTime: Number(headerValue(REDIRECTIONIO_PROXY_RESPONSE_TIME_HEADER)),
+    };
+
+    try {
+        return (await verifyForwardedData(data, signature)) ? data : null;
+    } catch (err) {
+        console.error(err);
+
+        return null;
+    }
+}
 
 async function log(
     response: ServerResponse,

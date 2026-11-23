@@ -7,6 +7,51 @@ export const REDIRECTIONIO_PROXY_RESPONSE_TIME_HEADER = "x-redirectionio-proxy-r
 export const REDIRECTIONIO_START_TIME_HEADER = "x-redirectionio-start-time";
 export const REDIRECTIONIO_MATCH_TIME_TIME_HEADER = "x-redirectionio-action-match-time";
 export const REDIRECTIONIO_ACTION_HEADER = "x-redirectionio-action";
+export const REDIRECTIONIO_SIGNATURE_HEADER = "x-redirectionio-signature";
+
+export type ForwardedMiddlewareData = {
+    action: string;
+    startTimestamp: number;
+    actionMatchTime: number;
+    proxyResponseTime: number;
+};
+
+const textEncoder = new TextEncoder();
+
+function importSigningKey() {
+    return crypto.subtle.importKey(
+        "raw",
+        textEncoder.encode(REDIRECTIONIO_TOKEN),
+        { name: "HMAC", hash: "SHA-256" },
+        false,
+        ["sign", "verify"],
+    );
+}
+
+function serializeForwardedData({
+    action,
+    startTimestamp,
+    actionMatchTime,
+    proxyResponseTime,
+}: ForwardedMiddlewareData) {
+    return textEncoder.encode([startTimestamp, actionMatchTime, proxyResponseTime, action].join("\n"));
+}
+
+export async function signForwardedData(data: ForwardedMiddlewareData) {
+    const signature = await crypto.subtle.sign("HMAC", await importSigningKey(), serializeForwardedData(data));
+
+    return Array.from(new Uint8Array(signature), (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+export async function verifyForwardedData(data: ForwardedMiddlewareData, signature: string) {
+    if (!/^[0-9a-f]{64}$/.test(signature)) {
+        return false;
+    }
+
+    const signatureBytes = new Uint8Array((signature.match(/../g) ?? []).map((byte) => parseInt(byte, 16)));
+
+    return crypto.subtle.verify("HMAC", await importSigningKey(), signatureBytes, serializeForwardedData(data));
+}
 
 export async function fetchRedirectionIOAction(redirectionIORequest: redirectionio.Request) {
     try {

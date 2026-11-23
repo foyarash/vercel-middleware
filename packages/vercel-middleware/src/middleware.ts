@@ -3,10 +3,13 @@ import { next, RequestContext } from "@vercel/edge";
 import { ipAddress } from "@vercel/functions";
 import {
     createRedirectionIORequest,
+    ForwardedMiddlewareData,
     REDIRECTIONIO_ACTION_HEADER,
     REDIRECTIONIO_MATCH_TIME_TIME_HEADER,
     REDIRECTIONIO_PROXY_RESPONSE_TIME_HEADER,
+    REDIRECTIONIO_SIGNATURE_HEADER,
     REDIRECTIONIO_START_TIME_HEADER,
+    signForwardedData,
 } from "./common";
 import { getEnv } from "./env";
 import { Middleware } from "./types";
@@ -142,6 +145,7 @@ async function handler(
     }
 
     const startTimestamp = Date.now();
+    const originalRequestHeaders = new Headers(request.headers);
 
     await redirectionio.init();
 
@@ -168,6 +172,13 @@ async function handler(
     response.headers.set(REDIRECTIONIO_MATCH_TIME_TIME_HEADER, actionMatchTime.toString());
     response.headers.set(REDIRECTIONIO_ACTION_HEADER, action.serialize());
 
+    await forwardDataToBackend(response, originalRequestHeaders, {
+        action: action.serialize(),
+        startTimestamp,
+        actionMatchTime,
+        proxyResponseTime,
+    });
+
     const url = new URL(request.url);
     const location = response.headers.get("Location");
 
@@ -177,6 +188,36 @@ async function handler(
     }
 
     return response;
+}
+
+async function forwardDataToBackend(
+    response: Response,
+    originalRequestHeaders: Headers,
+    data: ForwardedMiddlewareData,
+): Promise<void> {
+    const forwardedHeaders = {
+        [REDIRECTIONIO_ACTION_HEADER]: data.action,
+        [REDIRECTIONIO_START_TIME_HEADER]: data.startTimestamp.toString(),
+        [REDIRECTIONIO_MATCH_TIME_TIME_HEADER]: data.actionMatchTime.toString(),
+        [REDIRECTIONIO_PROXY_RESPONSE_TIME_HEADER]: data.proxyResponseTime.toString(),
+        [REDIRECTIONIO_SIGNATURE_HEADER]: await signForwardedData(data),
+    };
+    const existingOverride = response.headers.get("x-middleware-override-headers");
+    const overriddenHeaders = new Set(existingOverride ? existingOverride.split(",").map((name) => name.trim()) : []);
+
+    if (!existingOverride) {
+        originalRequestHeaders.forEach((value, key) => {
+            overriddenHeaders.add(key);
+            response.headers.set("x-middleware-request-" + key, value);
+        });
+    }
+
+    Object.entries(forwardedHeaders).forEach(([key, value]) => {
+        overriddenHeaders.add(key);
+        response.headers.set("x-middleware-request-" + key, value);
+    });
+
+    response.headers.set("x-middleware-override-headers", Array.from(overriddenHeaders).join(","));
 }
 
 function splitSetCookies(cookiesString: string) {
