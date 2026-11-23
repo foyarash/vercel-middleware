@@ -20,7 +20,8 @@
         "lint:fix": "oxlint --fix --config ../../.oxlintrc.json",
         "format": "oxfmt -c ../../.oxfmtrc.json",
         "format:check": "oxfmt -c ../../.oxfmtrc.json --check",
-        "types": "tsc --noEmit"
+        "types": "tsc --noEmit",
+        "test": "vitest run"
     },
     "exports": {
         ".": {
@@ -61,7 +62,9 @@
         "oxfmt": "catalog:",
         "oxlint": "catalog:",
         "tsup": "^9.0.0",
-        "typescript": "catalog:"
+        "typescript": "catalog:",
+        "vite": "^8",
+        "vitest": "^5.1.1"
     },
     "peerDependencies": {
         "next": ">= 14.0.0"

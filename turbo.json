@@ -25,6 +25,9 @@
             "cache": false,
             "persistent": true
         },
+        "test": {
+            "dependsOn": ["^build"]
+        },
         "test:e2e": {}
     }
 }

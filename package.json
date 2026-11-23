@@ -20,6 +20,7 @@
         "format": "turbo run format",
         "format:check": "oxfmt -c .oxfmtrc.json --check",
         "types": "turbo run types",
+        "test": "turbo run test",
         "test:e2e": "turbo run test:e2e",
         "publish-packages": "yarn build:packages && changeset publish",
         "changeset-version": "changeset version"

@@ -30,9 +30,7 @@ export function isIgnoredUrl(requestUrl: string, matcherRegex: string | null | u
 export function isPlatformInternalRequest(request: IncomingMessage, response: ServerResponse) {
     // On Vercel, a Node.js middleware runs in its own invocation, which must not be logged as the request.
     // `next start` only exposes `x-middleware-rewrite` on the response of the rewritten page.
-    if (
-        response.getHeaderNames().some((name) => name.startsWith("x-middleware-") && name !== "x-middleware-rewrite")
-    ) {
+    if (response.getHeaderNames().some((name) => name.startsWith("x-middleware-") && name !== "x-middleware-rewrite")) {
         return true;
     }
 
