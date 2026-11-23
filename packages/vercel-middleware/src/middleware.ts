@@ -23,6 +23,7 @@ const {
     REDIRECTIONIO_INSTANCE_NAME,
     REDIRECTIONIO_VERSION,
     REDIRECTIONIO_ADD_HEADER_RULE_IDS,
+    REDIRECTIONIO_DEBUG_HEADERS,
     REDIRECTIONIO_TIMEOUT,
 } = getEnv();
 
@@ -169,12 +170,14 @@ async function handler(
         return fetchResponse(request, action.need_proxification());
     });
 
-    const proxyResponseTime = Date.now();
+    if (REDIRECTIONIO_DEBUG_HEADERS) {
+        const proxyResponseTime = Date.now();
 
-    response.headers.set(REDIRECTIONIO_PROXY_RESPONSE_TIME_HEADER, proxyResponseTime.toString());
-    response.headers.set(REDIRECTIONIO_START_TIME_HEADER, startTimestamp.toString());
-    response.headers.set(REDIRECTIONIO_MATCH_TIME_TIME_HEADER, actionMatchTime.toString());
-    response.headers.set(REDIRECTIONIO_ACTION_HEADER, action.serialize());
+        response.headers.set(REDIRECTIONIO_PROXY_RESPONSE_TIME_HEADER, proxyResponseTime.toString());
+        response.headers.set(REDIRECTIONIO_START_TIME_HEADER, startTimestamp.toString());
+        response.headers.set(REDIRECTIONIO_MATCH_TIME_TIME_HEADER, actionMatchTime.toString());
+        response.headers.set(REDIRECTIONIO_ACTION_HEADER, action.serialize());
+    }
 
     const url = new URL(request.url);
 
