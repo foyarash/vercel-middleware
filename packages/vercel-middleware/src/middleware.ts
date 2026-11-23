@@ -1,34 +1,26 @@
 import * as redirectionio from "@redirection.io/redirectionio";
-import { next, RequestContext } from "@vercel/edge";
+import { next } from "@vercel/functions/middleware";
 import { ipAddress } from "@vercel/functions/headers";
+import { createRedirectionIORequest, fetchRedirectionIOAction, logRequest, waitUntil } from "./agent";
+import { copyRequest, mergeMiddlewareResponses, middlewareResponseToRequest } from "./chained-middlewares";
+import { getEnv } from "./env";
+import { isPathMatched } from "./matcher";
+import { getNextRequestKind, stripNextRscSearchParam } from "./next-request";
+import { FetchResponse, proxy } from "./proxy";
+import { getStaticResponseStatus } from "./routes";
 import {
-    createRedirectionIORequest,
-    fetchRedirectionIOAction,
-    logRequest,
-    ForwardedMiddlewareData,
-    ForwardedRequest,
+    forwardDataToBackend,
     getMiddlewareLoopMarker,
     isMiddlewareLoopRequest,
-    isPathMatched,
     REDIRECTIONIO_ACTION_HEADER,
     REDIRECTIONIO_MATCH_TIME_TIME_HEADER,
     REDIRECTIONIO_MIDDLEWARE_HEADER,
     REDIRECTIONIO_PROXY_RESPONSE_TIME_HEADER,
-    REDIRECTIONIO_REQUEST_URL_HEADER,
-    REDIRECTIONIO_SHOULD_LOG_HEADER,
-    REDIRECTIONIO_SIGNATURE_HEADER,
     REDIRECTIONIO_START_TIME_HEADER,
-    signForwardedData,
-    stripNextRscSearchParam,
-    waitUntil,
-} from "./common";
-import { getEnv } from "./env";
-import { getStaticResponseStatus } from "./routes";
-import { Middleware } from "./types";
+} from "./signature";
+import { Middleware, RequestContext } from "./types";
 
-const { IS_VERCEL, REDIRECTIONIO_TOKEN, REDIRECTIONIO_ADD_HEADER_RULE_IDS, REDIRECTIONIO_DEBUG_HEADERS } = getEnv();
-
-type FetchResponse = (request: Request, useFetch: boolean) => Promise<Response>;
+const { IS_VERCEL, REDIRECTIONIO_TOKEN, REDIRECTIONIO_DEBUG_HEADERS } = getEnv();
 
 type CreateMiddlewareConfig<R extends Request = Request, C extends RequestContext = RequestContext> = {
     previousMiddleware?: Middleware<R, C>;
@@ -46,7 +38,6 @@ export const createRedirectionIoMiddleware = <R extends Request = Request, C ext
             return next();
         }
 
-        // Avoid infinite loop
         if (
             (await isMiddlewareLoopRequest(request.headers.get(REDIRECTIONIO_MIDDLEWARE_HEADER))) ||
             getNextRequestKind(request) === "server-action"
@@ -95,18 +86,7 @@ export const createRedirectionIoMiddleware = <R extends Request = Request, C ext
                     return mergeMiddlewareResponses(next(), [previousResponse, response], true);
                 }
 
-                const fetchResponse = await fetch(request, {
-                    redirect: "manual",
-                    cache: "no-store",
-                });
-
-                const backendResponse = new Response(fetchResponse.body, fetchResponse);
-
-                // fetch() already decoded the body, keeping these headers makes Vercel send an empty body
-                backendResponse.headers.delete("content-encoding");
-                backendResponse.headers.delete("content-length");
-
-                return mergeMiddlewareResponses(backendResponse, [previousResponse, response], false);
+                return mergeMiddlewareResponses(await fetchBackend(request), [previousResponse, response], false);
             },
         );
 
@@ -114,32 +94,69 @@ export const createRedirectionIoMiddleware = <R extends Request = Request, C ext
     };
 };
 
-type NextRequestKind = "server-action" | "rsc" | "document";
-
-function getNextRequestKind(request: Request): NextRequestKind {
-    const { headers } = request;
-
-    if (headers.get("next-action")) {
-        return "server-action";
-    }
-
-    if (
-        headers.get("rsc") === "1" ||
-        headers.has("next-router-prefetch") ||
-        headers.has("next-router-segment-prefetch") ||
-        headers.has("next-router-state-tree") ||
-        headers.get("accept")?.includes("text/x-component") ||
-        new URL(request.url).searchParams.has("_rsc")
-    ) {
-        return "rsc";
-    }
-
-    return "document";
-}
-
 const defaultMiddleware = createRedirectionIoMiddleware({});
 
 export default defaultMiddleware;
+
+async function fetchBackend(request: Request) {
+    const fetchResponse = await fetch(request, {
+        redirect: "manual",
+        cache: "no-store",
+    });
+
+    const backendResponse = new Response(fetchResponse.body, fetchResponse);
+
+    // fetch() already decoded the body, keeping these headers makes Vercel send an empty body
+    backendResponse.headers.delete("content-encoding");
+    backendResponse.headers.delete("content-length");
+
+    return backendResponse;
+}
+
+type Timings = {
+    startTimestamp: number;
+    actionMatchTime: number;
+    proxyResponseTime: number;
+};
+
+function setDebugHeaders(response: Response, action: redirectionio.Action, timings: Timings) {
+    response.headers.set(REDIRECTIONIO_PROXY_RESPONSE_TIME_HEADER, timings.proxyResponseTime.toString());
+    response.headers.set(REDIRECTIONIO_START_TIME_HEADER, timings.startTimestamp.toString());
+    response.headers.set(REDIRECTIONIO_MATCH_TIME_TIME_HEADER, timings.actionMatchTime.toString());
+    response.headers.set(REDIRECTIONIO_ACTION_HEADER, action.serialize());
+}
+
+function getMiddlewareLogStatus(request: Request, response: Response) {
+    const rewriteUrl = response.headers.get("x-middleware-rewrite");
+    const isFinalResponse = !response.headers.has("x-middleware-next") && !rewriteUrl;
+    const staticResponseStatus =
+        isFinalResponse || !IS_VERCEL ? undefined : getStaticResponseStatus(request.method, rewriteUrl ?? request.url);
+    // Outside Vercel, every response goes through the Node.js server, so the instrumentation logs all of them
+    const isLoggedByMiddleware = IS_VERCEL && (isFinalResponse || staticResponseStatus !== undefined);
+
+    return { isLoggedByMiddleware, staticResponseStatus };
+}
+
+// Next.js parses the Location of a middleware response without base URL, then sends it relative to the request
+function makeLocationAbsolute(response: Response, url: URL) {
+    const location = response.headers.get("Location");
+
+    if (location && location.startsWith("/")) {
+        response.headers.set("Location", url.origin + location);
+    }
+}
+
+function getLoggedResponseHeaders(response: Response) {
+    const responseHeaders: Array<[string, string]> = [];
+
+    response.headers.forEach((value, key) => {
+        if (!key.startsWith("x-middleware-")) {
+            responseHeaders.push([key, value]);
+        }
+    });
+
+    return responseHeaders;
+}
 
 async function handler(
     publicUrl: URL,
@@ -174,346 +191,38 @@ async function handler(
     const [response, backendStatusCode] = await proxy(request, action, includedRequestHeadersInResponse, (request) => {
         request.headers.set(REDIRECTIONIO_MIDDLEWARE_HEADER, middlewareLoopMarker);
 
-        // skip fetch if we are in light mode
         return fetchResponse(request, action.need_proxification());
     });
-
-    const proxyResponseTime = Date.now();
+    const timings: Timings = { startTimestamp, actionMatchTime, proxyResponseTime: Date.now() };
 
     if (REDIRECTIONIO_DEBUG_HEADERS) {
-        response.headers.set(REDIRECTIONIO_PROXY_RESPONSE_TIME_HEADER, proxyResponseTime.toString());
-        response.headers.set(REDIRECTIONIO_START_TIME_HEADER, startTimestamp.toString());
-        response.headers.set(REDIRECTIONIO_MATCH_TIME_TIME_HEADER, actionMatchTime.toString());
-        response.headers.set(REDIRECTIONIO_ACTION_HEADER, action.serialize());
+        setDebugHeaders(response, action, timings);
     }
 
-    const rewriteUrl = response.headers.get("x-middleware-rewrite");
-    const isFinalResponse = !response.headers.has("x-middleware-next") && !rewriteUrl;
-    const staticResponseStatus =
-        isFinalResponse || !IS_VERCEL ? undefined : getStaticResponseStatus(request.method, rewriteUrl ?? request.url);
-    // Outside Vercel, every response goes through the Node.js server, so the instrumentation logs all of them
-    const isLoggedByMiddleware = IS_VERCEL && (isFinalResponse || staticResponseStatus !== undefined);
+    const { isLoggedByMiddleware, staticResponseStatus } = getMiddlewareLogStatus(request, response);
 
     await forwardDataToBackend(
         response,
         originalRequestHeaders,
-        {
-            action: action.serialize(),
-            startTimestamp,
-            actionMatchTime,
-            proxyResponseTime,
-            shouldLog: isLogged && !isLoggedByMiddleware,
-        },
+        { action: action.serialize(), ...timings, shouldLog: isLogged && !isLoggedByMiddleware },
         { method: request.method, pathAndQuery: url.pathname + url.search },
     );
 
-    const location = response.headers.get("Location");
-
-    // Next.js parses the Location of a middleware response without base URL, then sends it relative to the request
-    if (location && location.startsWith("/")) {
-        response.headers.set("Location", url.origin + location);
-    }
+    makeLocationAbsolute(response, url);
 
     if (isLogged && isLoggedByMiddleware) {
-        const responseHeaders: Array<[string, string]> = [];
-
-        response.headers.forEach((value, key) => {
-            if (!key.startsWith("x-middleware-")) {
-                responseHeaders.push([key, value]);
-            }
-        });
-
         runInBackground(
             logRequest({
                 redirectionioRequest: redirectionIORequest,
                 statusCode: staticResponseStatus ?? response.status,
                 backendStatusCode: staticResponseStatus ?? backendStatusCode,
-                responseHeaders,
+                responseHeaders: getLoggedResponseHeaders(response),
                 action,
-                startTimestamp,
-                actionMatchTime,
-                proxyResponseTime,
+                ...timings,
                 clientIP: ip,
             }),
         );
     }
 
     return response;
-}
-
-async function forwardDataToBackend(
-    response: Response,
-    originalRequestHeaders: Headers,
-    data: ForwardedMiddlewareData,
-    forwardedRequest: ForwardedRequest,
-): Promise<void> {
-    const forwardedHeaders = {
-        [REDIRECTIONIO_ACTION_HEADER]: data.action,
-        [REDIRECTIONIO_START_TIME_HEADER]: data.startTimestamp.toString(),
-        [REDIRECTIONIO_MATCH_TIME_TIME_HEADER]: data.actionMatchTime.toString(),
-        [REDIRECTIONIO_PROXY_RESPONSE_TIME_HEADER]: data.proxyResponseTime.toString(),
-        [REDIRECTIONIO_SHOULD_LOG_HEADER]: data.shouldLog ? "1" : "0",
-        [REDIRECTIONIO_REQUEST_URL_HEADER]: forwardedRequest.pathAndQuery,
-        [REDIRECTIONIO_SIGNATURE_HEADER]: await signForwardedData(data, forwardedRequest),
-    };
-    const existingOverride = response.headers.get("x-middleware-override-headers");
-    const overriddenHeaders = new Set(existingOverride ? existingOverride.split(",").map((name) => name.trim()) : []);
-
-    if (!existingOverride) {
-        originalRequestHeaders.forEach((value, key) => {
-            overriddenHeaders.add(key);
-            response.headers.set("x-middleware-request-" + key, value);
-        });
-    }
-
-    Object.entries(forwardedHeaders).forEach(([key, value]) => {
-        overriddenHeaders.add(key);
-        response.headers.set("x-middleware-request-" + key, value);
-    });
-
-    overriddenHeaders.delete(REDIRECTIONIO_MIDDLEWARE_HEADER);
-    response.headers.delete("x-middleware-request-" + REDIRECTIONIO_MIDDLEWARE_HEADER);
-    response.headers.set("x-middleware-override-headers", Array.from(overriddenHeaders).join(","));
-}
-
-function mergeMiddlewareResponses(
-    target: Response,
-    middlewareResponses: Array<Response | null>,
-    isPassThrough: boolean,
-): Response {
-    for (const source of middlewareResponses) {
-        if (!source) {
-            continue;
-        }
-
-        if (isPassThrough && source.headers.has("x-middleware-override-headers")) {
-            Array.from(target.headers.keys())
-                .filter((key) => key.startsWith("x-middleware-request-"))
-                .forEach((key) => target.headers.delete(key));
-        }
-
-        source.headers.forEach((value, key) => {
-            if (key === "set-cookie") {
-                target.headers.append(key, value);
-            } else if (!key.startsWith("x-middleware-")) {
-                target.headers.set(key, value);
-            } else if (isPassThrough && key === "x-middleware-set-cookie") {
-                const existingValue = target.headers.get(key);
-                target.headers.set(key, existingValue ? existingValue + "," + value : value);
-            } else if (isPassThrough && key !== "x-middleware-next") {
-                target.headers.set(key, value);
-            }
-        });
-    }
-
-    if (target.headers.has("x-middleware-rewrite")) {
-        target.headers.delete("x-middleware-next");
-    }
-
-    return target;
-}
-
-// The body stream moves to the copy: it is only read if the request is proxified, never buffered by the middleware
-function copyRequest(request: Request, url: string): Request {
-    const init: RequestInit & { duplex: "half" } = {
-        method: request.method,
-        headers: request.headers,
-        body: request.body,
-        duplex: "half",
-    };
-
-    return new Request(url, init);
-}
-
-function middlewareResponseToRequest(originalRequest: Request, response: Response): Request {
-    let request = originalRequest;
-
-    if (response.headers.has("x-middleware-rewrite")) {
-        const newUrl = response.headers.get("x-middleware-rewrite");
-
-        if (newUrl) {
-            request = copyRequest(request, newUrl);
-        }
-    }
-
-    if (response.headers.has("x-middleware-override-headers")) {
-        const headersToOverride = response.headers.get("x-middleware-override-headers");
-
-        if (headersToOverride) {
-            headersToOverride.split(",").forEach((header) => {
-                const value = response.headers.get("x-middleware-request-" + header);
-
-                if (value) {
-                    request.headers.set(header, value);
-                }
-            });
-        }
-    }
-
-    if (response.headers.has("x-middleware-set-cookie")) {
-        const cookies = new Map(
-            (request.headers.get("cookie") ?? "")
-                .split(";")
-                .map((cookie) => cookie.trim())
-                .filter(Boolean)
-                .map((cookie) => [cookie.split("=")[0], cookie]),
-        );
-
-        response.headers.getSetCookie().forEach((setCookie) => {
-            const cookie = setCookie.split(";")[0].trim();
-            cookies.set(cookie.split("=")[0], cookie);
-        });
-
-        request.headers.set("cookie", Array.from(cookies.values()).join("; "));
-    }
-
-    return request;
-}
-
-/* Redirection.io logic */
-async function proxy(
-    request: Request,
-    action: redirectionio.Action,
-    includedRequestHeadersInResponse: string[] | undefined,
-    fetchResponse: FetchResponse,
-): Promise<[Response, number]> {
-    try {
-        const statusCodeBeforeResponse = action.get_status_code(0);
-
-        let response;
-
-        if (statusCodeBeforeResponse === 0) {
-            response = await fetchResponse(request, true);
-        } else {
-            response = new Response("", {
-                status: Number(statusCodeBeforeResponse),
-            });
-        }
-
-        const backendStatusCode = response.status;
-        const statusCodeAfterResponse = action.get_status_code(backendStatusCode);
-        let status = response.status;
-
-        if (statusCodeAfterResponse !== 0) {
-            status = Number(statusCodeAfterResponse);
-        }
-
-        const headerMap = new redirectionio.HeaderMap();
-
-        response.headers.forEach((value, key) => {
-            if (key !== "set-cookie") {
-                headerMap.add_header(key, value);
-            }
-        });
-
-        response.headers.getSetCookie().forEach((cookie) => headerMap.add_header("set-cookie", cookie));
-
-        request.headers.forEach((value, key) => {
-            if (includedRequestHeadersInResponse?.includes(key)) {
-                headerMap.add_header(key, value);
-            }
-        });
-
-        const newHeaderMap = action.filter_headers(headerMap, backendStatusCode, REDIRECTIONIO_ADD_HEADER_RULE_IDS);
-        const newHeaders = new Headers();
-
-        for (let i = 0; i < newHeaderMap.len(); i++) {
-            const headerName = newHeaderMap.get_header_name(i);
-
-            if (headerName && headerName.length > 0) {
-                newHeaders.append(headerName, newHeaderMap.get_header_value(i));
-            }
-        }
-
-        response = new Response(response.body, {
-            status: status,
-            statusText: response.statusText,
-            headers: newHeaders,
-        });
-
-        newHeaderMap.remove_header("content-encoding");
-        const bodyFilter = action.create_body_filter(backendStatusCode, newHeaderMap);
-
-        if (bodyFilter.is_null() || getNextRequestKind(request) !== "document") {
-            return [response, response.status];
-        }
-
-        const filteredHeaders = new Headers(response.headers);
-
-        filteredHeaders.delete("content-encoding");
-        filteredHeaders.delete("content-length");
-
-        const { readable, writable } = new TransformStream();
-
-        createBodyFilter(response.body, writable, bodyFilter);
-
-        return [
-            new Response(readable, {
-                status: response.status,
-                statusText: response.statusText,
-                headers: filteredHeaders,
-            }),
-            backendStatusCode,
-        ];
-    } catch (err) {
-        console.error(err);
-        const response = await fetchResponse(request, true);
-
-        return [response, response.status];
-    }
-}
-
-async function createBodyFilter(
-    readable: ReadableStream<Uint8Array> | null,
-    writable: WritableStream,
-    bodyFilter: redirectionio.BodyFilter,
-) {
-    const writer = writable.getWriter();
-    const reader = readable?.getReader();
-
-    try {
-        if (!reader) {
-            const filteredData = bodyFilter.filter(new Uint8Array());
-
-            if (filteredData) {
-                await writer.write(filteredData);
-            }
-
-            const lastData = bodyFilter.end();
-
-            if (lastData) {
-                await writer.write(lastData);
-            }
-
-            await writer.close();
-
-            return;
-        }
-
-        let data = await reader.read();
-
-        while (!data.done) {
-            const filteredData = bodyFilter.filter(data.value);
-
-            if (filteredData) {
-                await writer.write(filteredData);
-            }
-
-            data = await reader.read();
-        }
-
-        const lastData = bodyFilter.end();
-
-        if (lastData) {
-            await writer.write(lastData);
-        }
-
-        await writer.close();
-    } catch (error) {
-        console.error(error);
-
-        await Promise.allSettled([writer.abort(error), reader?.cancel(error)]);
-    } finally {
-        reader?.releaseLock();
-    }
 }
