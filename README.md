@@ -101,6 +101,19 @@ Then, deploy your project to Vercel.
 vercel deploy
 ```
 
+### Environment variables
+
+| Variable                                    | Value                                   | Default                            |
+| ------------------------------------------- | --------------------------------------- | ---------------------------------- |
+| `REDIRECTIONIO_TOKEN`                       | Token of your redirection.io instance   | (required)                         |
+| `REDIRECTIONIO_INSTANCE_NAME`               | Name of the instance shown in the logs  | `redirection-io-vercel-middleware` |
+| `REDIRECTIONIO_TIMEOUT`                     | Positive integer, in milliseconds       | `500`                              |
+| `REDIRECTIONIO_DEBUG_HEADERS`               | `true` or `false`                       | `false`                            |
+| `REDIRECTIONIO_ADD_HEADER_RULE_IDS`         | `true` or `false`                       | `false`                            |
+| `REDIRECTIONIO_FORWARDED_SENSITIVE_HEADERS` | Comma-separated list of header names    | (empty)                            |
+
+An invalid value does not break your application: a warning is logged in the console and the default value is used.
+
 ### Agent requests
 
 The middleware waits for the action of the redirection.io agent at most `REDIRECTIONIO_TIMEOUT` milliseconds (default:
