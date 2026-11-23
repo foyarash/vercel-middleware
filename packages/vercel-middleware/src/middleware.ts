@@ -123,6 +123,10 @@ export const createRedirectionIoMiddleware = <R extends Request = Request, C ext
 
                 const backendResponse = new Response(fetchResponse.body, fetchResponse);
 
+                // fetch() already decoded the body, keeping these headers makes Vercel send an empty body
+                backendResponse.headers.delete("content-encoding");
+                backendResponse.headers.delete("content-length");
+
                 if (response) {
                     response.headers.forEach((value, key) => {
                         if (!key.startsWith("x-middleware-")) {

@@ -73,6 +73,14 @@ The instrumentation ignores the Vercel internal requests (`/_vercel/*`) and the 
 (Next.js 16 `proxy.ts`), which runs in its own function on Vercel. With `logged: false`, neither the middleware nor the
 instrumentation logs the requests handled by the middleware.
 
+### Proxified responses
+
+When a rule has to alter the backend response (response headers, body filters), the middleware fetches the page from
+the deployment itself (one extra function invocation) with the headers of the client request and a signed marker that
+prevents a loop. The client IP (`x-forwarded-for`, `x-real-ip`) is kept, and with Vercel Deployment Protection the
+client credentials (`_vercel_jwt` cookie, `x-vercel-protection-bypass` header) are reused, so a visitor allowed to see
+a protected preview also gets the proxified page; no bypass secret is added by the middleware.
+
 Then, deploy your project to Vercel.
 
 ```bash
