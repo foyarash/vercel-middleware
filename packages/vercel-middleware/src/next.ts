@@ -42,7 +42,9 @@ const withNextConfig = (middleware: NextMiddleware | undefined, nextConfig: Next
         return undefined;
     }
 
-    return (req: Request, evt?: NextFetchEvent) => middleware(new NextRequest(req, { nextConfig }), evt);
+    // Next.js 14 and 15 Edge sandboxes do not see `req` as a `Request` instance and would drop its headers and method.
+    return (req: Request, evt?: NextFetchEvent) =>
+        middleware(new NextRequest(req, { nextConfig, method: req.method, headers: req.headers, body: req.body }), evt);
 };
 
 export const createRedirectionIoMiddleware = (config: CreateMiddlewareConfig): NextMiddleware => {
