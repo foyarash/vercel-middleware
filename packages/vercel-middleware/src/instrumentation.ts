@@ -25,6 +25,12 @@ const { REDIRECTIONIO_TOKEN } = getEnv();
 
 type ResponseFinishMessage = { request: IncomingMessage; response: ServerResponse };
 
+const LOG_RESPONSE_KEY = Symbol.for("@redirection.io/vercel-middleware/instrumentation");
+
+type InstrumentationGlobal = typeof globalThis & {
+    [LOG_RESPONSE_KEY]?: (message: ResponseFinishMessage) => Promise<void>;
+};
+
 type RegisterInstrumentationConfig = {
     matcherRegex?: string | null;
 };
@@ -40,7 +46,6 @@ export const registerRedirectionIoInstrumentation = async ({ matcherRegex }: Reg
         await redirectionio.init();
 
         const diagnostics = await import("node:diagnostics_channel");
-        const channel = diagnostics.channel("http.server.response.finish");
 
         const logResponse = async ({ request, response }: ResponseFinishMessage) => {
             const nextInternalMeta = Symbol.for("NextInternalRequestMeta");
@@ -138,10 +143,26 @@ export const registerRedirectionIoInstrumentation = async ({ matcherRegex }: Reg
             });
         };
 
-        channel.subscribe((message) => {
+        const instrumentationGlobal = globalThis as InstrumentationGlobal;
+        const isSubscribed = instrumentationGlobal[LOG_RESPONSE_KEY] !== undefined;
+
+        // Keep a single subscription across HMR reloads and repeated calls, with the latest config
+        instrumentationGlobal[LOG_RESPONSE_KEY] = logResponse;
+
+        if (isSubscribed) {
+            return;
+        }
+
+        diagnostics.channel("http.server.response.finish").subscribe((message) => {
             try {
+                const logLatestResponse = instrumentationGlobal[LOG_RESPONSE_KEY];
+
+                if (!logLatestResponse) {
+                    return;
+                }
+
                 waitUntil(
-                    logResponse(message as ResponseFinishMessage).catch((error) =>
+                    logLatestResponse(message as ResponseFinishMessage).catch((error) =>
                         console.error("redirection.io: unable to log the request.", error),
                     ),
                 );
