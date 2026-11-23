@@ -9,8 +9,7 @@ export default createRedirectionIoMiddleware({
 export const config = {
     unstable_allowDynamic: ["/node_modules/@redirection.io/**"],
     matcher: [
-        // Match all pathnames except `/api`, the Next.js static files and images, and `.png` files: legacy URLs
-        // with an extension (`/old-page.html`) must reach the middleware to be redirected
+        // Legacy URLs with an extension (`/old-page.html`) must reach the middleware to be redirected
         "/((?!api|_next/static|_next/image|.*\\.png$).*)?",
     ],
 };

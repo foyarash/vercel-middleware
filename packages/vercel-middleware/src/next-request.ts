@@ -1,6 +1,6 @@
 import type { IncomingMessage } from "node:http";
 
-export type NextRequestKind = "server-action" | "rsc" | "document";
+type NextRequestKind = "server-action" | "rsc" | "document";
 
 export function getNextRequestKind(request: Request): NextRequestKind {
     const { headers } = request;

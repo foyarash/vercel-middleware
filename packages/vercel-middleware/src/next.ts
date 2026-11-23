@@ -38,7 +38,6 @@ const getNextConfig = (request: NextRequest): NextConfig => {
 };
 
 export const createRedirectionIoMiddleware = (config: CreateMiddlewareConfig): NextMiddleware => {
-    // The Next.js config is the same for every request, it is read from the first one
     let nextConfig: NextConfig | undefined;
 
     const withNextConfig = (middleware: NextMiddleware | undefined) => {

@@ -1,8 +1,3 @@
-/**
- * This file is intended to be used only for Webpack in a Next.js application.
- *
- * It's used to fix errors appearing while loading the Redirection IO WASM module.
- */
 import path from "path";
 import { fileURLToPath } from "url";
 
