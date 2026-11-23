@@ -44,6 +44,13 @@ export const register = async () => {
 };
 ```
 
+The middleware forwards the redirection.io action and its timings to the instrumentation through Next.js request header
+overrides (`x-middleware-override-headers`), signed with an HMAC-SHA256 of the `REDIRECTIONIO_TOKEN` bound to the
+request method, path and query, and only accepted for 60 seconds. The
+instrumentation ignores any `x-redirectionio-*` request header without a valid signature (for example one sent by a
+client) and fetches the action itself instead. Both runtimes therefore need the same `REDIRECTIONIO_TOKEN` and access to
+the Web Crypto API (`crypto.subtle`, available on Node.js 20+).
+
 Then, deploy your project to Vercel.
 
 ```bash
