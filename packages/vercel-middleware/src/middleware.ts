@@ -8,6 +8,7 @@ import {
     ForwardedRequest,
     getMiddlewareLoopMarker,
     isMiddlewareLoopRequest,
+    isPathMatched,
     REDIRECTIONIO_ACTION_HEADER,
     REDIRECTIONIO_MATCH_TIME_TIME_HEADER,
     REDIRECTIONIO_MIDDLEWARE_HEADER,
@@ -31,11 +32,6 @@ const {
     REDIRECTIONIO_TIMEOUT,
 } = getEnv();
 
-const DEFAULT_CONFIG = {
-    matcherRegex: "^/((?!api/|_next/|_static/|_vercel|[\\w-]+\\.\\w+).*)$",
-    logged: true,
-} as const;
-
 type FetchResponse = (request: Request, useFetch: boolean) => Promise<Response>;
 
 type CreateMiddlewareConfig<R extends Request = Request, C extends RequestContext = RequestContext> = {
@@ -50,14 +46,7 @@ export const createRedirectionIoMiddleware = <R extends Request = Request, C ext
     config: CreateMiddlewareConfig<R, C>,
 ): Middleware<R, C> => {
     return async (request, context) => {
-        const pathname = new URL(request.url).pathname;
-
-        config = {
-            ...DEFAULT_CONFIG,
-            ...config,
-        };
-
-        if (config.matcherRegex && !pathname.match(config.matcherRegex)) {
+        if (!isPathMatched(new URL(request.url).pathname, config.matcherRegex)) {
             return next();
         }
 

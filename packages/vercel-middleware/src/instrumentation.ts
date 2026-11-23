@@ -8,6 +8,7 @@ import {
     ForwardedMiddlewareData,
     ForwardedRequest,
     isMiddlewareLoopRequest,
+    isPathMatched,
     logRequest,
     REDIRECTIONIO_ACTION_HEADER,
     REDIRECTIONIO_MATCH_TIME_TIME_HEADER,
@@ -23,7 +24,11 @@ const { REDIRECTIONIO_TOKEN } = getEnv();
 
 type ResponseFinishMessage = { request: IncomingMessage; response: ServerResponse };
 
-export const registerRedirectionIoInstrumentation = async () => {
+type RegisterInstrumentationConfig = {
+    matcherRegex?: string | null;
+};
+
+export const registerRedirectionIoInstrumentation = async ({ matcherRegex }: RegisterInstrumentationConfig = {}) => {
     if (process.env.NEXT_RUNTIME !== "edge") {
         if (!REDIRECTIONIO_TOKEN) {
             console.warn("No REDIRECTIONIO_TOKEN environment variable found. Skipping redirection.io instrumentation.");
@@ -48,7 +53,8 @@ export const registerRedirectionIoInstrumentation = async () => {
                 requestUrl.startsWith("/_next/") ||
                 requestUrl.startsWith("/_vercel/") ||
                 requestUrl.includes("/__nextjs") ||
-                /\.(js|css|png|jpg|jpeg|gif|svg|ico|woff|woff2|ttf|map|json)(\?|$)/i.test(requestUrl)
+                /\.(js|css|png|jpg|jpeg|gif|svg|ico|woff|woff2|ttf|map|json)(\?|$)/i.test(requestUrl) ||
+                !isPathMatched(new URL(requestUrl, "http://localhost").pathname, matcherRegex)
             ) {
                 return; // Skip logging
             }

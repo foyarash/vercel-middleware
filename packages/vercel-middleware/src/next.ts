@@ -46,14 +46,12 @@ const withNextConfig = (middleware: NextMiddleware | undefined, nextConfig: Next
 };
 
 export const createRedirectionIoMiddleware = (config: CreateMiddlewareConfig): NextMiddleware => {
-    const configMatcherRegex = config.matcherRegex;
-
     return async (req: NextRequest, evt?: NextFetchEvent) => {
         const nextConfig = getNextConfig(req);
         const edgeMiddleware = createEdgeMiddleware<NextRequest, NextFetchEvent>({
             previousMiddleware: withNextConfig(config.previousMiddleware, nextConfig),
             nextMiddleware: withNextConfig(config.nextMiddleware, nextConfig),
-            ...(configMatcherRegex ? { matcherRegex: configMatcherRegex } : {}),
+            matcherRegex: config.matcherRegex,
             logged: config.logged ?? true,
             // By default, handle next intl headers
             includedRequestHeadersInResponse: [

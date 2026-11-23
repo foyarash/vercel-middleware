@@ -65,8 +65,15 @@ Each request handled by redirection.io is logged exactly once, in the background
 -   when the middleware lets the request through to a dynamic route (server-rendered page, route handler), the
     instrumentation sends the log once the function answered, with its real status code (for example a `404` returned
     by `notFound()`);
--   requests the middleware does not handle (for example `/api/*` routes with the default `matcherRegex`) are logged by
-    the instrumentation only.
+-   requests excluded by the `matcherRegex` (for example `/api/*` routes with the default one) are neither handled nor
+    logged.
+
+The instrumentation applies the same default `matcherRegex` as the middleware. If you change it in the middleware, pass
+the same value to the instrumentation:
+
+```typescript
+registerRedirectionIoInstrumentation({ matcherRegex: null }); // log every route, API routes included
+```
 
 To tell static pages from dynamic routes, a Node.js middleware (Next.js 16 `proxy.ts`, or `runtime: "nodejs"`) reads
 the Next.js build manifests (`.next/prerender-manifest.json`, `.next/app-path-routes-manifest.json`,

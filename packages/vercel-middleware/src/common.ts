@@ -27,6 +27,14 @@ export const REDIRECTIONIO_SIGNATURE_HEADER = "x-redirectionio-signature";
 export const REDIRECTIONIO_MIDDLEWARE_HEADER = "x-redirectionio-middleware";
 export const REDIRECTIONIO_SHOULD_LOG_HEADER = "x-redirectionio-should-log";
 
+const DEFAULT_MATCHER_REGEX = "^/((?!api/|_next/|_static/|_vercel|[\\w-]+\\.\\w+).*)$";
+
+export function isPathMatched(pathname: string, matcherRegex: string | null | undefined) {
+    const regex = matcherRegex === undefined ? DEFAULT_MATCHER_REGEX : matcherRegex;
+
+    return regex === null || new RegExp(regex).test(pathname);
+}
+
 export type ForwardedMiddlewareData = {
     action: string;
     startTimestamp: number;
