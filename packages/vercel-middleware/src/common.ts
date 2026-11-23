@@ -136,7 +136,7 @@ export async function fetchRedirectionIOAction(redirectionIORequest: redirection
 type CreateRedirectionIORequestParams = {
     url: URL;
     method: string;
-    headers: Record<string, string>;
+    headers: Record<string, string | string[] | undefined>;
     ip?: string;
 };
 
@@ -153,7 +153,11 @@ export function createRedirectionIORequest({ url, method, headers, ip }: CreateR
             return;
         }
 
-        redirectionioRequest.add_header(key, value as string);
+        (Array.isArray(value) ? value : [value]).forEach((headerValue) => {
+            if (headerValue !== undefined) {
+                redirectionioRequest.add_header(key, headerValue);
+            }
+        });
     });
 
     if (ip) {

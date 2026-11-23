@@ -1,6 +1,10 @@
 import { createRedirectionIoMiddleware } from "@redirection.io/vercel-middleware/next";
+import { auditBNextMiddleware, auditBPreviousMiddleware } from "./audit-b-middlewares";
 
-export default createRedirectionIoMiddleware({});
+export default createRedirectionIoMiddleware({
+    previousMiddleware: auditBPreviousMiddleware,
+    nextMiddleware: auditBNextMiddleware,
+});
 
 export const config = {
     unstable_allowDynamic: ["/node_modules/@redirection.io/**"],

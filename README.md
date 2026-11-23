@@ -123,6 +123,12 @@ Here's a summary of the middleware options:
 | `nextMiddleware`     | Function          | Middleware to be executed after redirection.io middleware                                                |
 | `matcherRegex`       | String or null    | Regex to specify which routes should be handled by redirection.io middleware                             |
 
+When chaining middlewares, redirection.io rules are always matched against the public URL of the request, even if
+`previousMiddleware` rewrites it. The final response keeps what the chained middlewares set: the rewrite
+(`NextResponse.rewrite`), the overridden request headers (`NextResponse.next({ request: { headers } })`), the cookies
+(`response.cookies.set`) and any other response header. A `previousMiddleware` returning a status other than `200`
+(e.g. a redirection) still short-circuits redirection.io.
+
 ## Next.js
 
 If you are using next.js middlewares, you can use the `createRedirectionIoMiddleware` method
