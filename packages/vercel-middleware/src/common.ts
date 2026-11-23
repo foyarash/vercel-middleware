@@ -1,7 +1,23 @@
 import * as redirectionio from "@redirection.io/redirectionio";
 import { getEnv } from "./env";
 
-const { REDIRECTIONIO_TOKEN, REDIRECTIONIO_INSTANCE_NAME, REDIRECTIONIO_VERSION, REDIRECTIONIO_TIMEOUT } = getEnv();
+const {
+    REDIRECTIONIO_TOKEN,
+    REDIRECTIONIO_INSTANCE_NAME,
+    REDIRECTIONIO_VERSION,
+    REDIRECTIONIO_TIMEOUT,
+    REDIRECTIONIO_FORWARDED_SENSITIVE_HEADERS,
+} = getEnv();
+
+const SENSITIVE_HEADERS = ["cookie", "authorization", "proxy-authorization", "x-api-key"];
+
+function shouldForwardHeader(name: string) {
+    const lowerCaseName = name.toLowerCase();
+
+    return (
+        !SENSITIVE_HEADERS.includes(lowerCaseName) || REDIRECTIONIO_FORWARDED_SENSITIVE_HEADERS.includes(lowerCaseName)
+    );
+}
 
 export const REDIRECTIONIO_PROXY_RESPONSE_TIME_HEADER = "x-redirectionio-proxy-response-time";
 export const REDIRECTIONIO_START_TIME_HEADER = "x-redirectionio-start-time";
@@ -53,6 +69,10 @@ export function createRedirectionIORequest({ url, method, headers, ip }: CreateR
     );
 
     Object.entries(headers).forEach(([key, value]) => {
+        if (!shouldForwardHeader(key)) {
+            return;
+        }
+
         redirectionioRequest.add_header(key, value as string);
     });
 

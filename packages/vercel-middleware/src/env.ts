@@ -8,6 +8,10 @@ export const getEnv = () => {
     const REDIRECTIONIO_TIMEOUT = process.env.REDIRECTIONIO_TIMEOUT
         ? parseInt(process.env.REDIRECTIONIO_TIMEOUT, 10)
         : 500;
+    const REDIRECTIONIO_FORWARDED_SENSITIVE_HEADERS = (process.env.REDIRECTIONIO_FORWARDED_SENSITIVE_HEADERS || "")
+        .split(",")
+        .map((name) => name.trim().toLowerCase())
+        .filter(Boolean);
 
     return {
         REDIRECTIONIO_TOKEN,
@@ -15,5 +19,6 @@ export const getEnv = () => {
         REDIRECTIONIO_VERSION,
         REDIRECTIONIO_ADD_HEADER_RULE_IDS,
         REDIRECTIONIO_TIMEOUT,
+        REDIRECTIONIO_FORWARDED_SENSITIVE_HEADERS,
     };
 };
