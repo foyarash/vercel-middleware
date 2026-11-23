@@ -71,6 +71,10 @@ To forward some of them, set the `REDIRECTIONIO_FORWARDED_SENSITIVE_HEADERS` env
 REDIRECTIONIO_FORWARDED_SENSITIVE_HEADERS=cookie,authorization
 ```
 
+### Response encoding
+
+When the middleware proxies a request to your backend, `fetch()` decodes the response body, so the `content-encoding` and `content-length` headers are removed from the proxied response. They are also removed when a rule filters the body (custom HTML, SEO override…). Your platform can still compress the final response.
+
 ## Usage with an existing middleware
 
 You may have an existing middleware in your Vercel project. In this case, you can use

@@ -119,6 +119,12 @@ export const createRedirectionIoMiddleware = <R extends Request = Request, C ext
 
                 const backendResponse = new Response(fetchResponse.body, fetchResponse);
 
+                // fetch() already decoded the body but keeps the original encoding headers
+                if (backendResponse.headers.has("content-encoding")) {
+                    backendResponse.headers.delete("content-encoding");
+                    backendResponse.headers.delete("content-length");
+                }
+
                 if (response) {
                     response.headers.forEach((value, key) => {
                         if (!key.startsWith("x-middleware-")) {
@@ -440,11 +446,23 @@ async function proxy(
             return [response, response.status];
         }
 
+        const filteredHeaders = new Headers(response.headers);
+
+        filteredHeaders.delete("content-encoding");
+        filteredHeaders.delete("content-length");
+
         const { readable, writable } = new TransformStream();
 
         createBodyFilter(response.body, writable, bodyFilter);
 
-        return [new Response(readable, response), backendStatusCode];
+        return [
+            new Response(readable, {
+                status: response.status,
+                statusText: response.statusText,
+                headers: filteredHeaders,
+            }),
+            backendStatusCode,
+        ];
     } catch (err) {
         console.error(err);
         const response = await fetchResponse(request, true);
@@ -461,11 +479,35 @@ async function createBodyFilter(
     const writer = writable.getWriter();
     const reader = readable?.getReader();
 
-    if (!reader) {
-        const filteredData = bodyFilter.filter(new Uint8Array());
+    try {
+        if (!reader) {
+            const filteredData = bodyFilter.filter(new Uint8Array());
 
-        if (filteredData) {
-            await writer.write(filteredData);
+            if (filteredData) {
+                await writer.write(filteredData);
+            }
+
+            const lastData = bodyFilter.end();
+
+            if (lastData) {
+                await writer.write(lastData);
+            }
+
+            await writer.close();
+
+            return;
+        }
+
+        let data = await reader.read();
+
+        while (!data.done) {
+            const filteredData = bodyFilter.filter(data.value);
+
+            if (filteredData) {
+                await writer.write(filteredData);
+            }
+
+            data = await reader.read();
         }
 
         const lastData = bodyFilter.end();
@@ -475,27 +517,11 @@ async function createBodyFilter(
         }
 
         await writer.close();
+    } catch (error) {
+        console.error(error);
 
-        return;
+        await Promise.allSettled([writer.abort(error), reader?.cancel(error)]);
+    } finally {
+        reader?.releaseLock();
     }
-
-    let data = await reader.read();
-
-    while (!data.done) {
-        const filteredData = bodyFilter.filter(data.value);
-
-        if (filteredData) {
-            await writer.write(filteredData);
-        }
-
-        data = await reader.read();
-    }
-
-    const lastData = bodyFilter.end();
-
-    if (lastData) {
-        await writer.write(lastData);
-    }
-
-    await writer.close();
 }
