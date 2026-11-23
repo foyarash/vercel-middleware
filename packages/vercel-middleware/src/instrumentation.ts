@@ -1,5 +1,4 @@
 import * as redirectionio from "@redirection.io/redirectionio";
-import { waitUntil } from "@vercel/functions";
 import { getEnv } from "./env";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { TLSSocket } from "node:tls";
@@ -22,6 +21,7 @@ import {
     STATIC_ASSET_EXTENSIONS,
     stripNextRscSearchParam,
     verifyForwardedData,
+    waitUntil,
 } from "./common";
 const { IS_VERCEL, REDIRECTIONIO_TOKEN } = getEnv();
 

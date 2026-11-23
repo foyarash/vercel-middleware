@@ -1,0 +1,30 @@
+{
+    "name": "example-next14",
+    "version": "0.1.0",
+    "private": true,
+    "scripts": {
+        "dev": "next dev --port 3003",
+        "build": "next build",
+        "start": "next start --port 3003",
+        "lint": "oxlint --config ../../.oxlintrc.json",
+        "lint:fix": "oxlint --fix --config ../../.oxlintrc.json",
+        "format": "oxfmt -c ../../.oxfmtrc.json",
+        "format:check": "oxfmt -c ../../.oxfmtrc.json --check"
+    },
+    "dependencies": {
+        "@redirection.io/vercel-middleware": "workspace:*",
+        "next": "14.2.35",
+        "react": "18.3.1",
+        "react-dom": "18.3.1"
+    },
+    "devDependencies": {
+        "@tailwindcss/postcss": "^4.3.5",
+        "@types/node": "^20.19.43",
+        "@types/react": "^18.3.31",
+        "@types/react-dom": "^18.3.7",
+        "oxfmt": "catalog:",
+        "oxlint": "catalog:",
+        "tailwindcss": "^4.3.5",
+        "typescript": "^5.9.3"
+    }
+}

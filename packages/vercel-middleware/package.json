@@ -45,7 +45,7 @@
         },
         "./webpack": {
             "types": "./dist/webpack.d.ts",
-            "import": "./dist/webpack.mjs",
+            "import": "./dist/webpack.js",
             "require": "./dist/webpack.cjs"
         }
     },

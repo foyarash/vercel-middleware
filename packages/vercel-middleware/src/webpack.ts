@@ -4,6 +4,9 @@
  * It's used to fix errors appearing while loading the Redirection IO WASM module.
  */
 import path from "path";
+import { fileURLToPath } from "url";
+
+const moduleDirectory = typeof __dirname === "string" ? __dirname : path.dirname(fileURLToPath(import.meta.url));
 
 export const redirectionIoWebpackWasmRule = {
     test: /\.wasm$/,
@@ -11,7 +14,7 @@ export const redirectionIoWebpackWasmRule = {
     type: "javascript/auto",
     use: [
         {
-            loader: path.resolve(path.join(__dirname, "wasm-module-loader.cjs")),
+            loader: path.resolve(path.join(moduleDirectory, "wasm-module-loader.cjs")),
         },
     ],
 };
