@@ -7,5 +7,5 @@
     "access": "public",
     "baseBranch": "origin/master",
     "updateInternalDependencies": "patch",
-    "ignore": ["example", "example-webpack"]
+    "ignore": ["example", "example-webpack", "example-next14", "example-next15"]
 }
