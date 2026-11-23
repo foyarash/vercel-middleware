@@ -309,7 +309,7 @@ const nextConfig = {
 ```
 
 On the Edge runtime, the Next.js build manifests cannot be read (see [Logging](#logging)), so static pages served from
-the CDN cache are not logged. The `apps/example-next14` and `apps/example-next15` folders contain working examples.
+the CDN cache are not logged.
 
 > **Edge function size:** the redirection.io WebAssembly module alone weighs about 1.25 MB gzipped, more than the 1 MB
 > limit of Edge Functions on the Vercel Hobby plan: an Edge middleware using this library can only be deployed on a
