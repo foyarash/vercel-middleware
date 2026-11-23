@@ -115,8 +115,9 @@ export const registerRedirectionIoInstrumentation = async ({ matcherRegex }: Reg
 
             const ip = getClientIp(request, socketAddresses.get(request));
 
+            const logUrl = forwarded?.publicUrl ?? url;
             const redirectionIORequest = createRedirectionIORequest({
-                url: forwarded?.publicUrl ?? url,
+                url: logUrl,
                 headers: request.headers,
                 method: request.method!,
                 ip,
@@ -133,7 +134,9 @@ export const registerRedirectionIoInstrumentation = async ({ matcherRegex }: Reg
             const responseHeaders: Array<[string, string]> = [];
 
             Object.entries(response.getHeaders()).forEach(([key, value]) => {
-                if (value) {
+                if (key === "location" && typeof value === "string" && URL.canParse(value, logUrl)) {
+                    responseHeaders.push([key, new URL(value, logUrl).href]);
+                } else if (value) {
                     responseHeaders.push([key, value.toString()]);
                 }
             });

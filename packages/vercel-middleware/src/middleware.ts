@@ -200,10 +200,10 @@ async function handler(
 
     const rewriteUrl = response.headers.get("x-middleware-rewrite");
     const isFinalResponse = !response.headers.has("x-middleware-next") && !rewriteUrl;
-    const staticResponseStatus = isFinalResponse
-        ? undefined
-        : getStaticResponseStatus(request.method, rewriteUrl ?? request.url);
-    const isLoggedByMiddleware = isFinalResponse || staticResponseStatus !== undefined;
+    const staticResponseStatus =
+        isFinalResponse || !IS_VERCEL ? undefined : getStaticResponseStatus(request.method, rewriteUrl ?? request.url);
+    // Outside Vercel, every response goes through the Node.js server, so the instrumentation logs all of them
+    const isLoggedByMiddleware = IS_VERCEL && (isFinalResponse || staticResponseStatus !== undefined);
 
     await forwardDataToBackend(
         response,
