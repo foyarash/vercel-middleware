@@ -2,4 +2,4 @@
 "@redirection.io/vercel-middleware": patch
 ---
 
-Load `node:diagnostics_channel` with a dynamic `import()` in the instrumentation instead of `require()`, which is not defined in the ES module build.
+Load `node:diagnostics_channel` with `process.getBuiltinModule()` in the instrumentation when `require()` is not defined (ES module build loaded without a bundler), without making Next.js warn about a Node.js module in the Edge instrumentation bundle.

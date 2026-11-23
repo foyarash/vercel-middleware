@@ -48,7 +48,8 @@ export const registerRedirectionIoInstrumentation = async ({ matcherRegex }: Reg
 
         await redirectionio.init();
 
-        const diagnostics = await import("node:diagnostics_channel");
+        // @ts-ignore
+        const diagnostics = loadDiagnosticsChannel();
 
         const logResponse = async ({ request, response }: ResponseFinishMessage) => {
             const nextInternalMeta = Symbol.for("NextInternalRequestMeta");
@@ -175,6 +176,13 @@ export const registerRedirectionIoInstrumentation = async ({ matcherRegex }: Reg
         });
     }
 };
+
+// Bundlers provide require(), while a static or dynamic import makes Next.js warn when it bundles the Edge instrumentation
+function loadDiagnosticsChannel(): typeof import("node:diagnostics_channel") {
+    return typeof require === "function"
+        ? require("node:diagnostics_channel")
+        : globalThis.process.getBuiltinModule("node:diagnostics_channel");
+}
 
 function getRequestOrigin(request: IncomingMessage) {
     const firstValue = (value: string | string[] | undefined) =>
