@@ -59,6 +59,18 @@ Then, deploy your project to Vercel.
 vercel deploy
 ```
 
+### Sensitive request headers
+
+By default, the `cookie`, `authorization`, `proxy-authorization` and `x-api-key` request headers are never sent to the redirection.io agent.
+
+> **Breaking change:** rules using a request header trigger on one of these headers (for example a rule matching a `cookie` value, or the "Request a password for a folder" Basic Auth recipe, which relies on `authorization`) no longer match unless you opt in.
+
+To forward some of them, set the `REDIRECTIONIO_FORWARDED_SENSITIVE_HEADERS` environment variable to a comma-separated list of header names:
+
+```bash
+REDIRECTIONIO_FORWARDED_SENSITIVE_HEADERS=cookie,authorization
+```
+
 ## Usage with an existing middleware
 
 You may have an existing middleware in your Vercel project. In this case, you can use
