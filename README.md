@@ -163,6 +163,12 @@ Here's a summary of the middleware options:
 | `matcherRegex`       | String or null    | Regex to specify which routes should be handled by redirection.io middleware                             |
 | `logged`             | Boolean           | Whether the requests handled by the middleware are logged in redirection.io (default: `true`)            |
 
+When chaining middlewares, redirection.io rules are always matched against the public URL of the request, even if
+`previousMiddleware` rewrites it. The final response keeps what the chained middlewares set: the rewrite
+(`NextResponse.rewrite`), the overridden request headers (`NextResponse.next({ request: { headers } })`), the cookies
+(`response.cookies.set`) and any other response header. A `previousMiddleware` returning a status other than `200`
+(e.g. a redirection) still short-circuits redirection.io.
+
 ## Next.js
 
 If you are using next.js middlewares, you can use the `createRedirectionIoMiddleware` method
@@ -179,6 +185,10 @@ from `@redirection.io/vercel-middleware/next` which is compatible with `NextRequ
 };
 
 ```
+
+The `NextRequest` given to `previousMiddleware` and `nextMiddleware` is built with the Next.js config of the original
+request (`basePath`, `i18n`, `trailingSlash`), so `request.nextUrl.basePath`, `request.nextUrl.locale` and
+`request.nextUrl.pathname` match what Next.js gives to your own middleware.
 
 ### Client-side navigations and prefetches
 

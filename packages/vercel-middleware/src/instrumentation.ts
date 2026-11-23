@@ -99,7 +99,7 @@ export const registerRedirectionIoInstrumentation = async () => {
 
             const redirectionIORequest = createRedirectionIORequest({
                 url,
-                headers: request.headers as Record<string, string>,
+                headers: request.headers,
                 method: request.method!,
                 ip,
             });

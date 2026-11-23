@@ -70,6 +70,7 @@ export const createRedirectionIoMiddleware = <R extends Request = Request, C ext
         }
 
         const body = request.body ? await request.arrayBuffer() : null;
+        const publicUrl = new URL(request.url);
 
         let middlewareRequest = new Request(request.url, {
             method: request.method,
@@ -77,40 +78,41 @@ export const createRedirectionIoMiddleware = <R extends Request = Request, C ext
             body,
         });
 
-        if (config.previousMiddleware) {
-            const response = await config.previousMiddleware(middlewareRequest as R, context);
+        let previousResponse: Response | null = null;
+        let hasCalledBackend = false;
 
-            if (response.status !== 200) {
-                return response;
+        if (config.previousMiddleware) {
+            previousResponse = await config.previousMiddleware(middlewareRequest as R, context);
+
+            if (previousResponse.status !== 200) {
+                return previousResponse;
             }
 
-            middlewareRequest = middlewareResponseToRequest(middlewareRequest, response, body);
+            middlewareRequest = middlewareResponseToRequest(middlewareRequest, previousResponse, body);
         }
 
-        return handler(
+        const response = await handler(
+            publicUrl,
             middlewareRequest,
             config.includedRequestHeadersInResponse,
             config.logged ?? true,
             (promise) => (context?.waitUntil ? context.waitUntil(promise) : waitUntil(promise)),
             async (request, useFetch): Promise<Response> => {
                 let response: Response | null = null;
+                hasCalledBackend = true;
 
                 if (config.nextMiddleware) {
                     response = await config.nextMiddleware(request as R, context);
 
                     if (response.status !== 200) {
-                        return response;
+                        return mergeMiddlewareResponses(response, [previousResponse], false);
                     }
 
                     request = middlewareResponseToRequest(request, response, body);
                 }
 
-                if (!useFetch) {
-                    return response ?? next();
-                }
-
-                if (getNextRequestKind(request) !== "document") {
-                    return response ?? next();
+                if (!useFetch || getNextRequestKind(request) !== "document") {
+                    return mergeMiddlewareResponses(next(), [previousResponse, response], true);
                 }
 
                 const fetchResponse = await fetch(request, {
@@ -124,17 +126,11 @@ export const createRedirectionIoMiddleware = <R extends Request = Request, C ext
                 backendResponse.headers.delete("content-encoding");
                 backendResponse.headers.delete("content-length");
 
-                if (response) {
-                    response.headers.forEach((value, key) => {
-                        if (!key.startsWith("x-middleware-")) {
-                            backendResponse.headers.set(key, value);
-                        }
-                    });
-                }
-
-                return backendResponse;
+                return mergeMiddlewareResponses(backendResponse, [previousResponse, response], false);
             },
         );
+
+        return hasCalledBackend ? response : mergeMiddlewareResponses(response, [previousResponse], false);
     };
 };
 
@@ -166,6 +162,7 @@ const defaultMiddleware = createRedirectionIoMiddleware({});
 export default defaultMiddleware;
 
 async function handler(
+    publicUrl: URL,
     request: Request,
     includedRequestHeadersInResponse: string[] | undefined,
     isLogged: boolean,
@@ -184,7 +181,7 @@ async function handler(
     await redirectionio.init();
 
     const ip = ipAddress(request);
-    const url = stripNextRscSearchParam(new URL(request.url));
+    const url = stripNextRscSearchParam(new URL(publicUrl));
     const redirectionIORequest = createRedirectionIORequest({
         url,
         headers: Object.fromEntries(request.headers),
@@ -293,6 +290,8 @@ async function forwardDataToBackend(
         response.headers.set("x-middleware-request-" + key, value);
     });
 
+    overriddenHeaders.delete(REDIRECTIONIO_MIDDLEWARE_HEADER);
+    response.headers.delete("x-middleware-request-" + REDIRECTIONIO_MIDDLEWARE_HEADER);
     response.headers.set("x-middleware-override-headers", Array.from(overriddenHeaders).join(","));
 }
 
@@ -362,6 +361,43 @@ function splitSetCookies(cookiesString: string) {
     return cookiesStrings;
 }
 
+function mergeMiddlewareResponses(
+    target: Response,
+    middlewareResponses: Array<Response | null>,
+    isPassThrough: boolean,
+): Response {
+    for (const source of middlewareResponses) {
+        if (!source) {
+            continue;
+        }
+
+        if (isPassThrough && source.headers.has("x-middleware-override-headers")) {
+            Array.from(target.headers.keys())
+                .filter((key) => key.startsWith("x-middleware-request-"))
+                .forEach((key) => target.headers.delete(key));
+        }
+
+        source.headers.forEach((value, key) => {
+            if (key === "set-cookie") {
+                target.headers.append(key, value);
+            } else if (!key.startsWith("x-middleware-")) {
+                target.headers.set(key, value);
+            } else if (isPassThrough && key === "x-middleware-set-cookie") {
+                const existingValue = target.headers.get(key);
+                target.headers.set(key, existingValue ? existingValue + "," + value : value);
+            } else if (isPassThrough && key !== "x-middleware-next") {
+                target.headers.set(key, value);
+            }
+        });
+    }
+
+    if (target.headers.has("x-middleware-rewrite")) {
+        target.headers.delete("x-middleware-next");
+    }
+
+    return target;
+}
+
 function middlewareResponseToRequest(originalRequest: Request, response: Response, body: ArrayBuffer | null): Request {
     let request = originalRequest;
 
@@ -389,6 +425,25 @@ function middlewareResponseToRequest(originalRequest: Request, response: Respons
                 }
             });
         }
+    }
+
+    const middlewareCookies = response.headers.get("x-middleware-set-cookie");
+
+    if (middlewareCookies) {
+        const cookies = new Map(
+            (request.headers.get("cookie") ?? "")
+                .split(";")
+                .map((cookie) => cookie.trim())
+                .filter(Boolean)
+                .map((cookie) => [cookie.split("=")[0], cookie]),
+        );
+
+        splitSetCookies(middlewareCookies).forEach((setCookie) => {
+            const cookie = setCookie.split(";")[0].trim();
+            cookies.set(cookie.split("=")[0], cookie);
+        });
+
+        request.headers.set("cookie", Array.from(cookies.values()).join("; "));
     }
 
     return request;
