@@ -48,7 +48,10 @@ async function shouldSkipRequest(
 ) {
     return (
         isIgnoredUrl(requestUrl, matcherRegex) ||
-        (await isMiddlewareLoopRequest(request.headers[REDIRECTIONIO_MIDDLEWARE_HEADER])) ||
+        (await isMiddlewareLoopRequest(request.headers[REDIRECTIONIO_MIDDLEWARE_HEADER], {
+            method: request.method ?? "",
+            url: new URL(requestUrl, "http://localhost").href,
+        })) ||
         isNextPrefetchRequest(request) ||
         isPlatformInternalRequest(request, response)
     );

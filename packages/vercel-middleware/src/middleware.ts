@@ -10,7 +10,7 @@ import { FetchResponse, proxy } from "./proxy";
 import { getStaticResponseStatus } from "./routes";
 import {
     forwardDataToBackend,
-    getMiddlewareLoopMarker,
+    createMiddlewareLoopMarker,
     isMiddlewareLoopRequest,
     REDIRECTIONIO_ACTION_HEADER,
     REDIRECTIONIO_MATCH_TIME_TIME_HEADER,
@@ -38,12 +38,18 @@ export const createRedirectionIoMiddleware = <R extends Request = Request, C ext
             return next();
         }
 
-        if (
-            (await isMiddlewareLoopRequest(request.headers.get(REDIRECTIONIO_MIDDLEWARE_HEADER))) ||
-            getNextRequestKind(request) === "server-action"
-        ) {
+        const loopMarker = request.headers.get(REDIRECTIONIO_MIDDLEWARE_HEADER);
+
+        if (await isMiddlewareLoopRequest(loopMarker, request)) {
+            return skipLoopRequest(request);
+        }
+
+        if (getNextRequestKind(request) === "server-action") {
             return next();
         }
+
+        // An invalid marker is handled as a normal request, but never fetched again to rule out any loop
+        const canFetchBackend = loopMarker === null;
 
         const publicUrl = new URL(request.url);
 
@@ -82,7 +88,7 @@ export const createRedirectionIoMiddleware = <R extends Request = Request, C ext
                     request = middlewareResponseToRequest(request, response);
                 }
 
-                if (!useFetch || getNextRequestKind(request) !== "document") {
+                if (!useFetch || !canFetchBackend || getNextRequestKind(request) !== "document") {
                     return mergeMiddlewareResponses(next(), [previousResponse, response], true);
                 }
 
@@ -98,7 +104,25 @@ const defaultMiddleware = createRedirectionIoMiddleware({});
 
 export default defaultMiddleware;
 
+// The marker is removed from the request given to the application, which must not log the proxified request twice
+async function skipLoopRequest(request: Request) {
+    const response = next();
+    const url = new URL(request.url);
+    const now = Date.now();
+
+    await forwardDataToBackend(
+        response,
+        new Headers(request.headers),
+        { action: "", startTimestamp: now, actionMatchTime: now, proxyResponseTime: now, shouldLog: false },
+        { method: request.method, pathAndQuery: url.pathname + url.search },
+    );
+
+    return response;
+}
+
 async function fetchBackend(request: Request) {
+    request.headers.set(REDIRECTIONIO_MIDDLEWARE_HEADER, await createMiddlewareLoopMarker(request));
+
     const fetchResponse = await fetch(request, {
         redirect: "manual",
         cache: "no-store",
@@ -187,12 +211,9 @@ async function handler(
     });
     const action = await fetchRedirectionIOAction(redirectionIORequest);
     const actionMatchTime = Date.now();
-    const middlewareLoopMarker = await getMiddlewareLoopMarker();
-    const [response, backendStatusCode] = await proxy(request, action, includedRequestHeadersInResponse, (request) => {
-        request.headers.set(REDIRECTIONIO_MIDDLEWARE_HEADER, middlewareLoopMarker);
-
-        return fetchResponse(request, action.need_proxification());
-    });
+    const [response, backendStatusCode] = await proxy(request, action, includedRequestHeadersInResponse, (request) =>
+        fetchResponse(request, action.need_proxification()),
+    );
     const timings: Timings = { startTimestamp, actionMatchTime, proxyResponseTime: Date.now() };
 
     if (REDIRECTIONIO_DEBUG_HEADERS) {

@@ -99,29 +99,78 @@ describe("forwarded data signature", () => {
 });
 
 describe("middleware loop marker", () => {
-    it("recognizes its own marker only", async () => {
-        const { getMiddlewareLoopMarker, isMiddlewareLoopRequest } = await importSignature();
-        const marker = await getMiddlewareLoopMarker();
+    const loopRequest = { method: "GET", url: "https://example.com/page?a=1" };
 
-        expect(marker).toMatch(/^[0-9a-f]{64}$/);
-        await expect(isMiddlewareLoopRequest(marker)).resolves.toBe(true);
-        await expect(isMiddlewareLoopRequest("1")).resolves.toBe(false);
-        await expect(isMiddlewareLoopRequest([marker])).resolves.toBe(false);
-        await expect(isMiddlewareLoopRequest(null)).resolves.toBe(false);
-        await expect(isMiddlewareLoopRequest(undefined)).resolves.toBe(false);
+    beforeEach(() => {
+        vi.useFakeTimers({ toFake: ["Date"] });
+        vi.setSystemTime(new Date("2026-01-01T00:00:00Z"));
+    });
+
+    afterEach(() => {
+        vi.useRealTimers();
+    });
+
+    it("recognizes its own marker only", async () => {
+        const { createMiddlewareLoopMarker, isMiddlewareLoopRequest } = await importSignature();
+        const marker = await createMiddlewareLoopMarker(loopRequest);
+
+        expect(marker).toMatch(/^\d+\.[0-9a-f]{64}$/);
+        await expect(isMiddlewareLoopRequest(marker, loopRequest)).resolves.toBe(true);
+        await expect(isMiddlewareLoopRequest("1", loopRequest)).resolves.toBe(false);
+        await expect(isMiddlewareLoopRequest([marker], loopRequest)).resolves.toBe(false);
+        await expect(isMiddlewareLoopRequest(marker + ".0", loopRequest)).resolves.toBe(false);
+        await expect(isMiddlewareLoopRequest(null, loopRequest)).resolves.toBe(false);
+        await expect(isMiddlewareLoopRequest(undefined, loopRequest)).resolves.toBe(false);
+    });
+
+    it("ignores the query, which Next.js may re-serialize", async () => {
+        const { createMiddlewareLoopMarker, isMiddlewareLoopRequest } = await importSignature();
+        const marker = await createMiddlewareLoopMarker(loopRequest);
+
+        await expect(
+            isMiddlewareLoopRequest(marker, { ...loopRequest, url: "https://example.com/page?b=2" }),
+        ).resolves.toBe(true);
+    });
+
+    it("is bound to the method and the path of the request", async () => {
+        const { createMiddlewareLoopMarker, isMiddlewareLoopRequest } = await importSignature();
+        const marker = await createMiddlewareLoopMarker(loopRequest);
+
+        await expect(
+            isMiddlewareLoopRequest(marker, { ...loopRequest, url: "https://example.com/other" }),
+        ).resolves.toBe(false);
+        await expect(isMiddlewareLoopRequest(marker, { ...loopRequest, method: "POST" })).resolves.toBe(false);
+    });
+
+    it("expires after 60 seconds", async () => {
+        const { createMiddlewareLoopMarker, isMiddlewareLoopRequest } = await importSignature();
+        const marker = await createMiddlewareLoopMarker(loopRequest);
+
+        vi.setSystemTime(Date.now() + 60_000);
+        await expect(isMiddlewareLoopRequest(marker, loopRequest)).resolves.toBe(true);
+
+        vi.setSystemTime(Date.now() + 1);
+        await expect(isMiddlewareLoopRequest(marker, loopRequest)).resolves.toBe(false);
+    });
+
+    it("rejects a forged timestamp", async () => {
+        const { createMiddlewareLoopMarker, isMiddlewareLoopRequest } = await importSignature();
+        const [, signature] = (await createMiddlewareLoopMarker(loopRequest)).split(".");
+
+        await expect(isMiddlewareLoopRequest(Date.now() + 1 + "." + signature, loopRequest)).resolves.toBe(false);
     });
 
     it("depends on the token", async () => {
-        const marker = await (await importSignature("other-token")).getMiddlewareLoopMarker();
+        const marker = await (await importSignature("other-token")).createMiddlewareLoopMarker(loopRequest);
         const { isMiddlewareLoopRequest } = await importSignature();
 
-        await expect(isMiddlewareLoopRequest(marker)).resolves.toBe(false);
+        await expect(isMiddlewareLoopRequest(marker, loopRequest)).resolves.toBe(false);
     });
 
     it("is never recognized without token", async () => {
         const { isMiddlewareLoopRequest } = await importSignature("");
 
-        await expect(isMiddlewareLoopRequest("0".repeat(64))).resolves.toBe(false);
+        await expect(isMiddlewareLoopRequest(Date.now() + "." + "0".repeat(64), loopRequest)).resolves.toBe(false);
     });
 });
 

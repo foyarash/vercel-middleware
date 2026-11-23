@@ -30,7 +30,6 @@ const FORWARDED_DATA_MAX_AGE_MS = 60_000;
 const textEncoder = new TextEncoder();
 
 let signingKey: Promise<CryptoKey> | undefined;
-let middlewareLoopMarker: Promise<string> | undefined;
 
 function getSigningKey() {
     signingKey ??= crypto.subtle.importKey(
@@ -50,18 +49,54 @@ async function hmacHex(message: Uint8Array<ArrayBuffer>) {
     return Array.from(new Uint8Array(signature), (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
-export function getMiddlewareLoopMarker(): Promise<string> {
-    middlewareLoopMarker ??= hmacHex(textEncoder.encode(REDIRECTIONIO_MIDDLEWARE_HEADER));
-
-    return middlewareLoopMarker;
+function hexToBytes(hex: string) {
+    return new Uint8Array((hex.match(/../g) ?? []).map((byte) => parseInt(byte, 16)));
 }
 
-export async function isMiddlewareLoopRequest(markerValue: string | string[] | null | undefined) {
+function isFresh(timestamp: number) {
+    return Math.abs(Date.now() - timestamp) <= FORWARDED_DATA_MAX_AGE_MS;
+}
+
+type LoopRequest = { method: string; url: string };
+
+// The query is left out: Next.js may re-serialize it before the middleware runs again
+function serializeLoopMarker(timestamp: number, { method, url }: LoopRequest) {
+    return textEncoder.encode(
+        [REDIRECTIONIO_MIDDLEWARE_HEADER, timestamp, method.toUpperCase(), new URL(url).pathname].join("\n"),
+    );
+}
+
+export async function createMiddlewareLoopMarker(request: LoopRequest): Promise<string> {
+    const timestamp = Date.now();
+
+    return timestamp + "." + (await hmacHex(serializeLoopMarker(timestamp, request)));
+}
+
+export async function isMiddlewareLoopRequest(
+    markerValue: string | string[] | null | undefined,
+    request: LoopRequest,
+): Promise<boolean> {
     if (typeof markerValue !== "string" || !REDIRECTIONIO_TOKEN) {
         return false;
     }
 
-    return markerValue === (await getMiddlewareLoopMarker());
+    const [timestampValue, signature, ...rest] = markerValue.split(".");
+    const timestamp = Number(timestampValue);
+
+    if (rest.length > 0 || !Number.isSafeInteger(timestamp) || !/^[0-9a-f]{64}$/.test(signature ?? "")) {
+        return false;
+    }
+
+    if (!isFresh(timestamp)) {
+        return false;
+    }
+
+    return crypto.subtle.verify(
+        "HMAC",
+        await getSigningKey(),
+        hexToBytes(signature),
+        serializeLoopMarker(timestamp, request),
+    );
 }
 
 function serializeForwardedData(
@@ -90,13 +125,16 @@ export async function verifyForwardedData(data: ForwardedMiddlewareData, request
         return false;
     }
 
-    if (!(Math.abs(Date.now() - data.startTimestamp) <= FORWARDED_DATA_MAX_AGE_MS)) {
+    if (!isFresh(data.startTimestamp)) {
         return false;
     }
 
-    const signatureBytes = new Uint8Array((signature.match(/../g) ?? []).map((byte) => parseInt(byte, 16)));
-
-    return crypto.subtle.verify("HMAC", await getSigningKey(), signatureBytes, serializeForwardedData(data, request));
+    return crypto.subtle.verify(
+        "HMAC",
+        await getSigningKey(),
+        hexToBytes(signature),
+        serializeForwardedData(data, request),
+    );
 }
 
 export async function forwardDataToBackend(

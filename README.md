@@ -101,7 +101,8 @@ and followed by browsers and HTTP clients. The logs keep the absolute target URL
 
 When a rule has to alter the backend response (response headers, body filters), the middleware fetches the page from
 the deployment itself (one extra function invocation) with the headers of the client request and a signed marker that
-prevents a loop. The client IP (`x-forwarded-for`, `x-real-ip`) is kept, and with Vercel Deployment Protection the
+prevents a loop. The marker is bound to the method and path of the fetched request, expires after 60 seconds and is
+removed from the request headers given to your application, so it cannot be reused to bypass the middleware. The client IP (`x-forwarded-for`, `x-real-ip`) is kept, and with Vercel Deployment Protection the
 client credentials (`_vercel_jwt` cookie, `x-vercel-protection-bypass` header) are reused, so a visitor allowed to see
 a protected preview also gets the proxified page; no bypass secret is added by the middleware.
 
