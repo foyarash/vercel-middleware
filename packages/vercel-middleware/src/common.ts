@@ -27,6 +27,19 @@ export const REDIRECTIONIO_SIGNATURE_HEADER = "x-redirectionio-signature";
 export const REDIRECTIONIO_MIDDLEWARE_HEADER = "x-redirectionio-middleware";
 export const REDIRECTIONIO_SHOULD_LOG_HEADER = "x-redirectionio-should-log";
 
+// Same lookup as `waitUntil` from `@vercel/functions`, whose entry point pulls an optional `ws` import that Next.js 14 cannot bundle.
+export function waitUntil(promise: Promise<unknown>) {
+    const store = (globalThis as Record<symbol, unknown>)[Symbol.for("@vercel/request-context")];
+    const context: unknown =
+        store && typeof store === "object" && "get" in store && typeof store.get === "function"
+            ? store.get()
+            : undefined;
+
+    if (context && typeof context === "object" && "waitUntil" in context && typeof context.waitUntil === "function") {
+        context.waitUntil(promise);
+    }
+}
+
 const DEFAULT_MATCHER_REGEX = "^/((?!api/|_next/|_static/|_vercel|[\\w-]+\\.\\w+).*)$";
 
 export function isPathMatched(pathname: string, matcherRegex: string | null | undefined) {

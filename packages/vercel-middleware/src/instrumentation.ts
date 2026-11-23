@@ -1,5 +1,4 @@
 import * as redirectionio from "@redirection.io/redirectionio";
-import { waitUntil } from "@vercel/functions";
 import { getEnv } from "./env";
 import { IncomingMessage, ServerResponse } from "http";
 import {
@@ -19,6 +18,7 @@ import {
     REDIRECTIONIO_START_TIME_HEADER,
     stripNextRscSearchParam,
     verifyForwardedData,
+    waitUntil,
 } from "./common";
 const { REDIRECTIONIO_TOKEN } = getEnv();
 

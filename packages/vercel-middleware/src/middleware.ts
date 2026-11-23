@@ -1,6 +1,6 @@
 import * as redirectionio from "@redirection.io/redirectionio";
 import { next, RequestContext } from "@vercel/edge";
-import { ipAddress, waitUntil } from "@vercel/functions";
+import { ipAddress } from "@vercel/functions/headers";
 import {
     createRedirectionIORequest,
     logRequest,
@@ -18,6 +18,7 @@ import {
     REDIRECTIONIO_START_TIME_HEADER,
     signForwardedData,
     stripNextRscSearchParam,
+    waitUntil,
 } from "./common";
 import { getEnv } from "./env";
 import { getStaticResponseStatus } from "./routes";
