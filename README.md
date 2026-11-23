@@ -101,6 +101,13 @@ Then, deploy your project to Vercel.
 vercel deploy
 ```
 
+### Agent requests
+
+The middleware waits for the action of the redirection.io agent at most `REDIRECTIONIO_TIMEOUT` milliseconds (default:
+`500`), and a log request at most 5 seconds; the request is then aborted. When the agent does not answer in time or
+answers with an error status (`401`, `403`, `429`, `5xx`…), an error is logged in the console and no rule is applied to
+the request.
+
 ### Sensitive request headers
 
 By default, the `cookie`, `authorization`, `proxy-authorization` and `x-api-key` request headers are never sent to the redirection.io agent.

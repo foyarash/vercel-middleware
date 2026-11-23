@@ -122,20 +122,37 @@ export async function verifyForwardedData(data: ForwardedMiddlewareData, request
     return crypto.subtle.verify("HMAC", await getSigningKey(), signatureBytes, serializeForwardedData(data, request));
 }
 
+const LOG_TIMEOUT_MS = 5_000;
+
+function fetchAgent(endpoint: "action" | "log", body: string, timeout: number) {
+    return fetch("https://agent.redirection.io/" + REDIRECTIONIO_TOKEN + "/" + endpoint, {
+        method: "POST",
+        body,
+        headers: {
+            "User-Agent": "vercel-edge-middleware/" + REDIRECTIONIO_VERSION,
+            "x-redirectionio-instance-name": REDIRECTIONIO_INSTANCE_NAME,
+        },
+        cache: "no-store",
+        signal: AbortSignal.timeout(timeout),
+    });
+}
+
+function isTimeoutError(error: unknown) {
+    return typeof error === "object" && error !== null && "name" in error && error.name === "TimeoutError";
+}
+
 export async function fetchRedirectionIOAction(redirectionIORequest: redirectionio.Request) {
     try {
-        const response = (await Promise.race([
-            fetch("https://agent.redirection.io/" + REDIRECTIONIO_TOKEN + "/action", {
-                method: "POST",
-                body: redirectionIORequest.serialize().toString(),
-                headers: {
-                    "User-Agent": "vercel-edge-middleware/" + REDIRECTIONIO_VERSION,
-                    "x-redirectionio-instance-name": REDIRECTIONIO_INSTANCE_NAME,
-                },
-                cache: "no-store",
-            }),
-            new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout")), REDIRECTIONIO_TIMEOUT)),
-        ])) as Response;
+        const response = await fetchAgent("action", redirectionIORequest.serialize().toString(), REDIRECTIONIO_TIMEOUT);
+
+        if (!response.ok) {
+            await response.body?.cancel();
+            console.error(
+                `redirection.io: the agent answered the action request with a ${response.status} status, no rule is applied.`,
+            );
+
+            return redirectionio.Action.empty();
+        }
 
         const actionStr = await response.text();
 
@@ -144,8 +161,14 @@ export async function fetchRedirectionIOAction(redirectionIORequest: redirection
         }
 
         return new redirectionio.Action(actionStr);
-    } catch (e) {
-        console.error(e);
+    } catch (error) {
+        if (isTimeoutError(error)) {
+            console.error(
+                `redirection.io: the agent did not answer the action request within ${REDIRECTIONIO_TIMEOUT}ms, no rule is applied.`,
+            );
+        } else {
+            console.error("redirection.io: unable to fetch the action, no rule is applied.", error);
+        }
 
         return redirectionio.Action.empty();
     }
@@ -197,17 +220,23 @@ export async function logRequest({
             clientIP ?? "",
         );
 
-        await fetch("https://agent.redirection.io/" + REDIRECTIONIO_TOKEN + "/log", {
-            method: "POST",
-            body: logAsJson,
-            headers: {
-                "User-Agent": "vercel-edge-middleware/" + REDIRECTIONIO_VERSION,
-                "x-redirectionio-instance-name": REDIRECTIONIO_INSTANCE_NAME,
-            },
-            cache: "no-store",
-        });
-    } catch (err) {
-        console.error(err);
+        const response = await fetchAgent("log", logAsJson, LOG_TIMEOUT_MS);
+
+        await response.body?.cancel();
+
+        if (!response.ok) {
+            console.error(
+                `redirection.io: the agent answered the log request with a ${response.status} status, the request is not logged.`,
+            );
+        }
+    } catch (error) {
+        if (isTimeoutError(error)) {
+            console.error(
+                `redirection.io: the agent did not answer the log request within ${LOG_TIMEOUT_MS}ms, the request may not be logged.`,
+            );
+        } else {
+            console.error("redirection.io: unable to log the request.", error);
+        }
     }
 }
 

@@ -3,6 +3,7 @@ import { next, RequestContext } from "@vercel/edge";
 import { ipAddress, waitUntil } from "@vercel/functions";
 import {
     createRedirectionIORequest,
+    fetchRedirectionIOAction,
     logRequest,
     ForwardedMiddlewareData,
     ForwardedRequest,
@@ -23,14 +24,7 @@ import { getEnv } from "./env";
 import { getStaticResponseStatus } from "./routes";
 import { Middleware } from "./types";
 
-const {
-    REDIRECTIONIO_TOKEN,
-    REDIRECTIONIO_INSTANCE_NAME,
-    REDIRECTIONIO_VERSION,
-    REDIRECTIONIO_ADD_HEADER_RULE_IDS,
-    REDIRECTIONIO_DEBUG_HEADERS,
-    REDIRECTIONIO_TIMEOUT,
-} = getEnv();
+const { REDIRECTIONIO_TOKEN, REDIRECTIONIO_ADD_HEADER_RULE_IDS, REDIRECTIONIO_DEBUG_HEADERS } = getEnv();
 
 type FetchResponse = (request: Request, useFetch: boolean) => Promise<Response>;
 
@@ -436,35 +430,6 @@ function middlewareResponseToRequest(originalRequest: Request, response: Respons
     }
 
     return request;
-}
-
-async function fetchRedirectionIOAction(redirectionIORequest: redirectionio.Request) {
-    try {
-        const response = (await Promise.race([
-            fetch("https://agent.redirection.io/" + REDIRECTIONIO_TOKEN + "/action", {
-                method: "POST",
-                body: redirectionIORequest.serialize().toString(),
-                headers: {
-                    "User-Agent": "vercel-edge-middleware/" + REDIRECTIONIO_VERSION,
-                    "x-redirectionio-instance-name": REDIRECTIONIO_INSTANCE_NAME,
-                },
-                cache: "no-store",
-            }),
-            new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout")), REDIRECTIONIO_TIMEOUT)),
-        ])) as Response;
-
-        const actionStr = await response.text();
-
-        if (actionStr === "") {
-            return redirectionio.Action.empty();
-        }
-
-        return new redirectionio.Action(actionStr);
-    } catch (e) {
-        console.error(e);
-
-        return redirectionio.Action.empty();
-    }
 }
 
 /* Redirection.io logic */
